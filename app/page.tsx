@@ -1,1763 +1,1555 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
-/* =======================
-   GOOGLE SHEETS (NO AUTH)
-======================= */
 
-const SHEETS_WEBHOOK_URL =
-  "https://script.google.com/macros/s/AKfycbxU6RovW_blp676-YSxvcux6PBZWfhhYhQzDefXfX6ftQvY53UKUh2-PqQH8yPtJ3Df/exec";
+// ─── Data constants ────────────────────────────────────────────────────────────
 
-/* =======================
-   STORAGE KEYS
-======================= */
+// ─── RECOVERY IN MOTION — Study Configuration ─────────────────────────────────
+// Stream B: Naturalistic Workflow Observation (Addenbrooke's A&E)
+// Edit the lists below to customise categories for your study.
 
-const LS_ZONES_KEY = "cca_obs_zones_v2";
-const LS_MARKERS_KEY = "cca_obs_markers_v2";
-
-/* =======================
-   TYPES & CONSTANTS
-======================= */
-
-type ActivityType =
-  | "walking"
-  | "sitting"
-  | "standing"
-  | "socializing"
-  | "reading"
-  | "computer_work"
-  | "equipment_task"
-  | "meal"
-  | "sleep_rest";
-
-const ACTIVITY: { key: ActivityType; label: string; color: string }[] = [
-  { key: "walking", label: "Walking", color: "#1f77b4" },
-  { key: "sitting", label: "Sitting", color: "#9467bd" },
-  { key: "standing", label: "Standing", color: "#ff7f0e" },
-  { key: "socializing", label: "Socializing", color: "#e377c2" },
-  { key: "reading", label: "Reading", color: "#2ca02c" },
-  { key: "computer_work", label: "Computer work", color: "#17becf" },
-  { key: "equipment_task", label: "Equipment / procedure", color: "#8c564b" },
-  { key: "meal", label: "Meal / hydration", color: "#bcbd22" },
-  { key: "sleep_rest", label: "Rest / sleep", color: "#7f7f7f" },
+const EVENT_TYPES = [
+  // Task Activity categories — mapped to Stream B Table 4
+  { id: "direct_patient_care", label: "Direct Patient Care", color: "#2563EB" },
+  { id: "documentation", label: "Documentation", color: "#7C3AED" },
+  { id: "medication_task", label: "Medication Task", color: "#0D9488" },
+  { id: "staff_communication", label: "Staff Communication", color: "#0891B2" },
+  { id: "handover", label: "Handover / Briefing", color: "#9333EA" },
+  { id: "walking_navigation", label: "Walking / Navigation", color: "#059669" },
+  { id: "equipment_resource_search", label: "Equipment / Resource Search", color: "#D97706" },
+  { id: "waiting_idle", label: "Waiting / Idle", color: "#6B7280" },
+  { id: "pager_phone_screen", label: "Pager / Phone / Screen", color: "#DC2626" },
+  { id: "administrative_task", label: "Administrative Task", color: "#B45309" },
+  { id: "break", label: "Break / Rest", color: "#16A34A" },
+  { id: "other", label: "Other", color: "#94A3B8" },
 ];
 
-type RoleType =
-  | "commander"
-  | "pilot"
-  | "engineer"
-  | "scientist"
-  | "medic"
-  | "mission_control"
-  | "visitor_other";
-
-const ROLES: { key: RoleType; label: string }[] = [
-  { key: "commander", label: "Commander" },
-  { key: "pilot", label: "Pilot" },
-  { key: "engineer", label: "Engineer" },
-  { key: "scientist", label: "Scientist" },
-  { key: "medic", label: "Medic" },
-  { key: "mission_control", label: "Mission control" },
-  { key: "visitor_other", label: "Visitor / other" },
+// Bodily action / posture states (logged as sub-type on each event)
+const BODILY_ACTION_TYPES = [
+  { id: "standing", label: "Standing" },
+  { id: "sitting", label: "Sitting" },
+  { id: "walking", label: "Walking" },
+  { id: "crouching", label: "Crouching / Reaching" },
+  { id: "running", label: "Running" },
 ];
 
-type Marker = {
-  id: string;
-  createdAt: number;
-  intervalIndex: number;
-  intervalLabel: string;
+// Stress markers — grouped for panel navigation (H1–H4 cascade)
+// Each item has a group property for subgroup rendering
+const STRESS_CATEGORIES = [
+  // Spatial / perceptual — environment making cognition harder
+  { id: "spatial_disorientation",        label: "Disorientation",          group: "spatial" },
+  { id: "low_spatial_predictability",    label: "Can't Read Space",        group: "spatial" },
+  { id: "poor_sightlines",               label: "Poor Sightlines",         group: "spatial" },
+  { id: "reactive_visual_search",        label: "Hunting / Scanning",      group: "spatial" },
+  { id: "equipment_not_where_expected",  label: "Equipment Misplaced",     group: "spatial" },
+  { id: "spatial_conflict",              label: "Space Blocked / Contested", group: "spatial" },
+  // Workflow friction
+  { id: "interruption",                  label: "Interruption",            group: "workflow" },
+  { id: "time_pressure",                 label: "Time Pressure",           group: "workflow" },
+  { id: "multitasking",                  label: "Multitasking",            group: "workflow" },
+  { id: "role_conflict",                 label: "Role Conflict",           group: "workflow" },
+  { id: "unexpected_patient_surge",      label: "Patient Surge",           group: "workflow" },
+  // Environmental conditions
+  { id: "noise_crowding",                label: "Noise / Crowding",        group: "environment" },
+  { id: "privacy_violation",             label: "Privacy Violation",       group: "environment" },
+  { id: "emotional_demand",              label: "Emotional Demand",        group: "environment" },
+  { id: "crash_call_nearby",             label: "Crash Call Nearby",       group: "environment" },
+  { id: "equipment_broken",              label: "Equipment Broken",        group: "environment" },
+  { id: "staff_shortage",                label: "Staff Shortage",          group: "environment" },
+];
 
-  observerName: string;
-  buildingSite: string;
+const STRESS_SUBGROUPS = [
+  { id: "spatial",      label: "Spatial" },
+  { id: "workflow",     label: "Workflow" },
+  { id: "environment",  label: "Environment" },
+];
 
-  badgeNumber: string;
-  role: RoleType;
+// Recovery / micro-restoration markers — grouped (H4 cascade)
+const RECOVERY_CATEGORIES = [
+  // Spatial restoration — environment doing the cognitive work
+  { id: "high_spatial_predictability",  label: "Space Easy to Read",      group: "spatial" },
+  { id: "familiar_space",               label: "Familiar Space",          group: "spatial" },
+  { id: "good_sightlines",              label: "Good Sightlines",         group: "spatial" },
+  // Environmental restoration
+  { id: "quiet_moment",                 label: "Quiet Moment",            group: "environment" },
+  { id: "reduced_noise",                label: "Reduced Noise",           group: "environment" },
+  { id: "daylight_view",                label: "Daylight",                group: "environment" },
+  // Social / cognitive
+  { id: "social_support",               label: "Social Support",          group: "social" },
+  { id: "brief_humour",                 label: "Brief Humour",            group: "social" },
+  { id: "momentary_privacy",            label: "Momentary Privacy",       group: "social" },
+];
 
-  activity: ActivityType;
-  isGroup: boolean;
+const RECOVERY_SUBGROUPS = [
+  { id: "spatial",      label: "Spatial" },
+  { id: "environment",  label: "Environment" },
+  { id: "social",       label: "Social" },
+];
 
-  x: number; // 0..1
-  y: number; // 0..1
+// Contextual flags — factual environmental conditions, logged separately from stress/recovery
+const CONTEXTUAL_FLAGS = [
+  { id: "crash_call_nearby",    label: "Crash call" },
+  { id: "equipment_broken",     label: "Equip. broken" },
+  { id: "patient_complaint",    label: "Patient complaint" },
+  { id: "handover_underway",    label: "Handover underway" },
+  { id: "staff_shortage",       label: "Staff shortage" },
+  { id: "maintenance_works",    label: "Maintenance / works" },
+];
 
-  zone: string;
-  note: string;
+// Room density / people present
+const PEOPLE_PRESENT = [
+  { id: "alone", label: "Alone" },
+  { id: "patient_only", label: "Patient only" },
+  { id: "patient_family", label: "Patient + family" },
+  { id: "small_team", label: "Small team (2–3)" },
+  { id: "large_team", label: "Large team (4+)" },
+  { id: "crowded", label: "Crowded space" },
+];
 
-  cloudStatus?: "pending" | "ok" | "fail";
-  source?: "live" | "import";
-};
+// Patient acuity at moment of observation
+const PATIENT_ACUITY = [
+  { id: "low", label: "Low" },
+  { id: "moderate", label: "Moderate" },
+  { id: "high", label: "High" },
+  { id: "not_applicable", label: "N/A" },
+];
 
-type ZoneRect = {
-  id: string;
-  name: string;
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  createdAt: number;
-};
+// Participant roles — Addenbrooke's A&E staff
+const PARTICIPANT_ROLES = ["nurse", "doctor"];
 
-/* =======================
-   HELPERS
-======================= */
+// Gender
+const GENDER_OPTIONS = ["woman", "man", "non-binary", "prefer not to say"];
 
-function uid() {
-  return Math.random().toString(16).slice(2) + Date.now().toString(16);
+// Seniority levels (Stream B Table 4)
+const SENIORITY_LEVELS = ["student", "band_2_4", "band_5_6", "band_7_8", "junior_doctor", "registrar", "consultant"];
+
+// Clinical experience brackets
+const EXPERIENCE_CATEGORIES = ["<1 year", "1–2 years", "2–3 years", "3–5 years", "5–10 years", "10+ years"];
+
+// Departmental operational status at session start
+const DEPARTMENTAL_STATUS = ["quiet", "moderate", "busy", "overwhelmed"];
+
+// Shift types — Addenbrooke's A&E (Table 2 of protocol)
+// Nurses: Early 07:00–14:30, Late 13:30–21:00, Night 21:15–08:00
+// Doctors: Day 07:45–16:15, Late 15:15–23:45, Night 10:45–08:45
+const SHIFT_TYPES = ["early", "day", "late", "night"];
+
+const ZONE_COLORS = [
+  "#2563EB", // blue
+  "#DC2626", // red
+  "#059669", // green
+  "#D97706", // amber
+  "#7C3AED", // purple
+  "#0891B2", // cyan
+  "#9333EA", // violet
+  "#16A34A", // emerald
+  "#EA580C", // orange
+  "#0E7490", // teal
+  "#BE185D", // pink
+  "#854D0E", // brown
+];
+
+// Pick the first colour not already used by an existing zone
+function pickZoneColor(existingZones) {
+  const used = new Set((existingZones || []).map(z => z.color));
+  return ZONE_COLORS.find(c => !used.has(c)) || ZONE_COLORS[existingZones.length % ZONE_COLORS.length];
 }
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-function formatHM(d: Date) {
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-}
-function formatHMS(d: Date) {
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
-}
-function formatIntervalLabel(start: Date, durationSeconds: number) {
-  const end = new Date(start.getTime() + durationSeconds * 1000);
-  return `${formatHM(start)}–${formatHM(end)}`;
-}
-function csvEscape(value: string) {
-  const v = value ?? "";
-  if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
-  return v;
-}
-function clamp01(n: number) {
-  return Math.max(0, Math.min(1, n));
-}
-function rectNormalize(a: { x: number; y: number }, b: { x: number; y: number }) {
-  const x1 = Math.min(a.x, b.x);
-  const y1 = Math.min(a.y, b.y);
-  const x2 = Math.max(a.x, b.x);
-  const y2 = Math.max(a.y, b.y);
-  return { x1, y1, x2, y2 };
-}
 
-function parseCSV(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let inQuotes = false;
+// Render helper — uses stored color, falls back to index for legacy zones
+function zoneColor(zone, idx) { return zone?.color || ZONE_COLORS[idx % ZONE_COLORS.length]; }
 
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
+// ─── Utilities ─────────────────────────────────────────────────────────────────
 
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') {
-          cell += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        cell += c;
-      }
-    } else {
-      if (c === '"') inQuotes = true;
-      else if (c === ",") {
-        row.push(cell);
-        cell = "";
-      } else if (c === "\n") {
-        row.push(cell);
-        rows.push(row);
-        row = [];
-        cell = "";
-      } else if (c !== "\r") {
-        cell += c;
-      }
-    }
+function nowIso() { return new Date().toISOString(); }
+function safeDate(v) { const d = new Date(v); return isNaN(d.getTime()) ? null : d; }
+function formatClock(v) { const d = safeDate(v); if (!d) return ""; return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
+function formatDuration(sec) { if (!sec) return "—"; const m = Math.floor(sec/60), s = sec%60; return m > 0 ? `${m}m ${s}s` : `${s}s`; }
+function secondsBetween(a, b) { const s = safeDate(a), e = safeDate(b); if (!s || !e) return 0; return Math.max(0, Math.round((e-s)/1000)); }
+function csvEscape(v) { if (v == null) return ""; const s = String(v); if (s.includes(",") || s.includes("\n") || s.includes('"')) return '"' + s.replace(/"/g,'""') + '"'; return s; }
+function toCsv(rows) { if (!rows || !rows.length) return ""; const h = [...new Set(rows.flatMap(r => Object.keys(r)))]; return [h.join(","), ...rows.map(r => h.map(k => csvEscape(r[k])).join(","))].join("\n"); }
+function findZoneName(zones, id) { return (zones||[]).find(z => z.id === id)?.name || ""; }
+function getEventColor(t) { return EVENT_TYPES.find(e => e.id === t)?.color || "#94A3B8"; }
+
+function pointInPolygon(pt, poly) {
+  if (!poly || poly.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = poly.length-1; i < poly.length; j = i++) {
+    const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+    if (((yi > pt.y) !== (yj > pt.y)) && pt.x < ((xj-xi)*(pt.y-yi))/(yj-yi)+xi) inside = !inside;
   }
-
-  row.push(cell);
-  rows.push(row);
-
-  return rows.filter((r) => r.some((x) => x.trim() !== ""));
+  return inside;
 }
 
-/* =======================
-   CLOUD WRITE (Sheets)
-======================= */
-
-async function sendToSheets(payload: Record<string, any>) {
-  if (!SHEETS_WEBHOOK_URL) throw new Error("Sheets webhook URL missing.");
-  await fetch(SHEETS_WEBHOOK_URL, {
-    method: "POST",
-    mode: "no-cors",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload),
-  });
-  return true;
+function detectZone(zones, x, y) {
+  for (let i = zones.length-1; i >= 0; i--)
+    if (zones[i].points && pointInPolygon({x,y}, zones[i].points)) return zones[i].id;
+  return "";
 }
 
-/* =======================
-   ZONES
-======================= */
-
-function zoneForPointFromZones(x: number, y: number, zones: ZoneRect[]): string {
-  for (const z of zones) if (x >= z.x1 && x <= z.x2 && y >= z.y1 && y <= z.y2) return z.name;
-  return "Unassigned";
+function polygonCentroid(pts) {
+  if (!pts || !pts.length) return {x:0,y:0};
+  return { x: pts.reduce((s,p)=>s+p.x,0)/pts.length, y: pts.reduce((s,p)=>s+p.y,0)/pts.length };
 }
 
-function zoneColorByIndex(i: number) {
-  // Soft, readable fills (cycled)
-  const palette = [
-    "rgba(59,130,246,0.14)", // blue
-    "rgba(16,185,129,0.14)", // green
-    "rgba(245,158,11,0.16)", // amber
-    "rgba(236,72,153,0.14)", // pink
-    "rgba(168,85,247,0.14)", // purple
-    "rgba(14,165,233,0.14)", // cyan
-    "rgba(239,68,68,0.12)",  // red
-    "rgba(99,102,241,0.14)", // indigo
-  ];
-  return palette[i % palette.length];
+function buildEventRows(session, zones, events) {
+  return (events||[]).map(ev => ({
+    session_id: session?.sessionId||"", date: session?.date||"", hospital: session?.hospital||"",
+    department: session?.department||"", unit: session?.unit||"", observer_id: session?.observerId||"",
+    participant_role: session?.participantRole||"", participant_code: session?.participantCode||"",
+    gender: session?.gender||"",
+    seniority_level: session?.seniorityLevel||"", clinical_experience: session?.clinicalExperience||"",
+    shift_type: session?.shiftType||"", departmental_status: session?.departmentalStatus||"",
+    protocol_checked: !!(session?.protocolChecked),
+    event_id: ev?.id||"", event_type: ev?.eventType||"",
+    bodily_action: ev?.bodilyAction||"", patient_acuity: ev?.patientAcuity||"",
+    start_time: ev?.startTime||"", end_time: ev?.endTime||"",
+    duration_seconds: ev?.endTime ? secondsBetween(ev.startTime, ev.endTime) : "",
+    zone_id: ev?.zoneId||"", zone_name: findZoneName(zones, ev?.zoneId),
+    x_coord: typeof ev?.x==="number" ? ev.x : "", y_coord: typeof ev?.y==="number" ? ev.y : "",
+    people_present: ev?.peoplePresent||"", interruption_flag: !!(ev?.interruptionFlag),
+    interruption_type: ev?.interruptionType||"", note: ev?.note||"",
+  }));
 }
 
-/* =======================
-   HEATMAP (GRID)
-======================= */
-
-type HeatCell = { gx: number; gy: number; count: number; norm: number };
-
-function buildHeatmapGrid(points: { x: number; y: number }[], grid: number): HeatCell[] {
-  const g = Math.max(5, Math.min(200, Math.floor(grid)));
-  const counts = new Map<number, number>();
-
-  for (const p of points) {
-    const gx = Math.max(0, Math.min(g - 1, Math.floor(p.x * g)));
-    const gy = Math.max(0, Math.min(g - 1, Math.floor(p.y * g)));
-    const key = gy * g + gx;
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-
-  let max = 0;
-  for (const v of counts.values()) max = Math.max(max, v);
-
-  const cells: HeatCell[] = [];
-  for (const [key, count] of counts.entries()) {
-    const gy = Math.floor(key / g);
-    const gx = key % g;
-    const norm = max > 0 ? count / max : 0;
-    cells.push({ gx, gy, count, norm });
-  }
-
-  return cells;
+function buildMarkerRows(session, zones, markers) {
+  return (markers||[]).map(m => ({
+    session_id: session?.sessionId||"", date: session?.date||"", hospital: session?.hospital||"",
+    department: session?.department||"", unit: session?.unit||"", observer_id: session?.observerId||"",
+    participant_role: session?.participantRole||"", participant_code: session?.participantCode||"",
+    gender: session?.gender||"",
+    seniority_level: session?.seniorityLevel||"", clinical_experience: session?.clinicalExperience||"",
+    shift_type: session?.shiftType||"", departmental_status: session?.departmentalStatus||"",
+    marker_id: m?.id||"", marker_type: m?.markerType||"",
+    category: m?.category||"", intensity_1_5: typeof m?.intensity==="number" ? m.intensity : "",
+    timestamp: m?.timestamp||"", zone_id: m?.zoneId||"", zone_name: findZoneName(zones, m?.zoneId),
+    x_coord: typeof m?.x==="number" ? m.x : "", y_coord: typeof m?.y==="number" ? m.y : "",
+    linked_event_id: m?.linkedEventId||"", note: m?.note||"",
+  }));
 }
 
-/* =======================
-   UI STYLES
-======================= */
+function downloadText(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
 
-const styles = {
-  input: {
-    width: "100%",
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid #d0d5dd",
-    outline: "none",
-    fontSize: 14,
-    background: "#fff",
-  } as React.CSSProperties,
-  select: {
-    width: "100%",
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid #d0d5dd",
-    outline: "none",
-    fontSize: 14,
-    background: "#fff",
-  } as React.CSSProperties,
-  buttonPrimary: {
-    padding: "10px 14px",
-    borderRadius: 10,
-    border: "1px solid #111",
-    background: "#111",
-    color: "#fff",
-    fontWeight: 800,
-    cursor: "pointer",
-  } as React.CSSProperties,
-  buttonSecondary: {
-    padding: "10px 14px",
-    borderRadius: 10,
-    border: "1px solid #d0d5dd",
-    background: "#fff",
-    color: "#111",
-    fontWeight: 800,
-    cursor: "pointer",
-  } as React.CSSProperties,
-  pill: {
-    padding: "6px 10px",
-    borderRadius: 999,
-    border: "1px solid #d0d5dd",
-    background: "#fff",
-    fontSize: 12,
-    fontWeight: 800,
-  } as React.CSSProperties,
-};
+// ─── Shared UI ─────────────────────────────────────────────────────────────────
 
-/* =======================
-   MAIN COMPONENT
-======================= */
-
-type Tab = "collect" | "review";
-
-export default function Page() {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  const [tab, setTab] = useState<Tab>("collect");
-
-  // Session settings
-  const [observerName, setObserverName] = useState("Observer 1");
-  const [buildingSite, setBuildingSite] = useState("Habitat A");
-  const [intervalMinutes, setIntervalMinutes] = useState(5);
-  const intervalSeconds = useMemo(() => Math.max(1, intervalMinutes * 60), [intervalMinutes]);
-
-  // Current “recording” state
-  const [badgeNumber, setBadgeNumber] = useState("");
-  const [role, setRole] = useState<RoleType>("pilot");
-  const [activity, setActivity] = useState<ActivityType>("walking");
-  const [isGroup, setIsGroup] = useState(false);
-  const [note, setNote] = useState("");
-
-  // Timer
-  const [isRunning, setIsRunning] = useState(false);
-  const [intervalIndex, setIntervalIndex] = useState(0);
-  const [intervalStart, setIntervalStart] = useState<number | null>(null);
-  const [timeLeft, setTimeLeft] = useState(intervalSeconds);
-
-  // Data
-  const [markers, setMarkers] = useState<Marker[]>([]);
-  const [statusMsg, setStatusMsg] = useState<string>("");
-  const [lastRecorded, setLastRecorded] = useState<string>("");
-
-  // Zones
-  const [zones, setZones] = useState<ZoneRect[]>([]);
-
-  // Auto-send
-  const [autoSendEnabled, setAutoSendEnabled] = useState(true);
-  const [sendLoopStatus, setSendLoopStatus] = useState<"idle" | "sending" | "ok" | "fail">("idle");
-  const [lastSendAt, setLastSendAt] = useState<number | null>(null);
-
-  // Review tools
-  const [importMode, setImportMode] = useState<"replace" | "append">("replace");
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  // Filters
-  const [filterBadge, setFilterBadge] = useState("");
-  const [filterRole, setFilterRole] = useState<RoleType | "all">("all");
-  const [filterActivity, setFilterActivity] = useState<ActivityType | "all">("all");
-  const [filterGroupOnly, setFilterGroupOnly] = useState(false);
-
-  // Playback
-  const [playbackEnabled, setPlaybackEnabled] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2 | 4 | 8>(2);
-  const [playbackPos, setPlaybackPos] = useState(1000);
-
-  // Zone editor
-  const [zoneEditorOn, setZoneEditorOn] = useState(false);
-  const [zoneDraftName, setZoneDraftName] = useState("New Zone");
-  const [isDrawingZone, setIsDrawingZone] = useState(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
-  const [dragNow, setDragNow] = useState<{ x: number; y: number } | null>(null);
-
-  // Heatmap controls (Review)
-  const [heatmapOn, setHeatmapOn] = useState(false);
-  const [heatGrid, setHeatGrid] = useState(60);
-  const [heatStrength, setHeatStrength] = useState(0.55); // opacity multiplier 0..1
-
-  // Load persisted zones + markers
-  useEffect(() => {
-    try {
-      const rawZ = localStorage.getItem(LS_ZONES_KEY);
-      if (rawZ) {
-        const parsed = JSON.parse(rawZ) as ZoneRect[];
-        if (Array.isArray(parsed)) setZones(parsed);
-      }
-    } catch {}
-    try {
-      const rawM = localStorage.getItem(LS_MARKERS_KEY);
-      if (rawM) {
-        const parsed = JSON.parse(rawM) as Marker[];
-        if (Array.isArray(parsed)) setMarkers(parsed);
-      }
-    } catch {}
-  }, []);
-
-  // Persist zones + markers
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_ZONES_KEY, JSON.stringify(zones));
-    } catch {}
-  }, [zones]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_MARKERS_KEY, JSON.stringify(markers));
-    } catch {}
-  }, [markers]);
-
-  // Keep timeLeft synced when not running
-  useEffect(() => {
-    if (!isRunning) setTimeLeft(intervalSeconds);
-  }, [intervalSeconds, isRunning]);
-
-  // Timer tick
-  useEffect(() => {
-    if (!isRunning || intervalStart === null) return;
-    const id = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - intervalStart) / 1000);
-      if (elapsed >= intervalSeconds) {
-        setIntervalIndex((i) => i + 1);
-        setIntervalStart((prev) => (prev === null ? Date.now() : prev + intervalSeconds * 1000));
-        setTimeLeft(intervalSeconds);
-      } else {
-        setTimeLeft(intervalSeconds - elapsed);
-      }
-    }, 250);
-    return () => clearInterval(id);
-  }, [isRunning, intervalStart, intervalSeconds]);
-
-  const intervalLabel = useMemo(() => {
-    if (!intervalStart) return "—";
-    return formatIntervalLabel(new Date(intervalStart), intervalSeconds);
-  }, [intervalStart, intervalSeconds]);
-
-  const timerText = useMemo(() => {
-    const mm = Math.floor(timeLeft / 60);
-    const ss = timeLeft % 60;
-    return `${mm}:${pad2(ss)}`;
-  }, [timeLeft]);
-
-  const selectedActivityMeta = useMemo(
-    () => ACTIVITY.find((a) => a.key === activity)!,
-    [activity]
+function Field({ label, children }) {
+  return (
+    <div style={{ marginBottom: 13 }}>
+      <label style={{ display:"block", fontSize:10, fontWeight:700, letterSpacing:"0.09em", textTransform:"uppercase", color:"#64748B", marginBottom:4, fontFamily:"'DM Mono',monospace" }}>{label}</label>
+      {children}
+    </div>
   );
+}
 
-  // Sorted markers
-  const markersSorted = useMemo(() => [...markers].sort((a, b) => a.createdAt - b.createdAt), [markers]);
+function Input({ value, onChange, placeholder, type="text" }) {
+  return <input type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+    style={{ width:"100%", boxSizing:"border-box", padding:"7px 10px", height:"36px", border:"1.5px solid #E2E8F0", borderRadius:6, fontSize:13, fontFamily:"'DM Sans',sans-serif", background:"#F8FAFC", color:"#1E293B", outline:"none" }}
+    onFocus={e=>e.target.style.borderColor="#2563EB"} onBlur={e=>e.target.style.borderColor="#E2E8F0"} />;
+}
 
-  // Playback window
-  const playbackWindow = useMemo(() => {
-    if (markersSorted.length === 0) return null;
-    return { minT: markersSorted[0].createdAt, maxT: markersSorted[markersSorted.length - 1].createdAt };
-  }, [markersSorted]);
+function Select({ value, onChange, options }) {
+  return (
+    <select value={value||""} onChange={e=>onChange(e.target.value)}
+      style={{ width:"100%", boxSizing:"border-box", padding:"7px 10px", height:"36px", border:"1.5px solid #E2E8F0", borderRadius:6, fontSize:13, fontFamily:"'DM Sans',sans-serif", background:"#F8FAFC", color:"#1E293B", cursor:"pointer", outline:"none" }}>
+      <option value="">— select —</option>
+      {options.map(o => <option key={typeof o==="string"?o:o.id} value={typeof o==="string"?o:o.id}>{typeof o==="string"?o:o.label}</option>)}
+    </select>
+  );
+}
 
-  const playbackCutoffTime = useMemo(() => {
-    if (!playbackWindow) return null;
-    const { minT, maxT } = playbackWindow;
-    return minT + ((maxT - minT) * playbackPos) / 1000;
-  }, [playbackWindow, playbackPos]);
+function Btn({ onClick, children, variant="primary", small=false, disabled=false }) {
+  const base = { border:"none", borderRadius:6, cursor:disabled?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", fontWeight:600, fontSize:small?11:13, padding:small?"4px 10px":"7px 15px", transition:"opacity 0.15s", opacity:disabled?0.4:1, whiteSpace:"nowrap" };
+  const v = { primary:{background:"#2563EB",color:"#fff"}, danger:{background:"#DC2626",color:"#fff"}, ghost:{background:"#F1F5F9",color:"#1E293B"}, success:{background:"#059669",color:"#fff"}, warn:{background:"#D97706",color:"#fff"}, outline:{background:"white",color:"#2563EB",border:"1.5px solid #2563EB"} };
+  return <button onClick={disabled?undefined:onClick} style={{...base,...v[variant]}}>{children}</button>;
+}
+
+function Badge({ color, children }) {
+  return <span style={{ display:"inline-block", padding:"2px 7px", borderRadius:99, fontSize:10, fontWeight:700, fontFamily:"'DM Mono',monospace", background:color+"20", color, letterSpacing:"0.04em" }}>{children}</span>;
+}
+
+function IntensityPicker({ value, onChange }) {
+  return (
+    <div style={{ display:"flex", gap:5, marginTop:4 }}>
+      {[1,2,3,4,5].map(n => (
+        <button key={n} onClick={()=>onChange(n)}
+          style={{ width:32, height:32, border:"none", borderRadius:5, cursor:"pointer", fontWeight:700, fontSize:12, background:n<=(value||0)?`hsl(${220-n*30},80%,50%)`:"#E2E8F0", color:n<=(value||0)?"#fff":"#94A3B8", transition:"all 0.12s" }}>
+          {n}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SectionHeader({ children, style={} }) {
+  return <div style={{ fontSize:11, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", color:"#2563EB", borderBottom:"2px solid #DBEAFE", paddingBottom:5, marginBottom:11, fontFamily:"'DM Mono',monospace", ...style }}>{children}</div>;
+}
+
+function Panel({ title, children, onClose }) {
+  return (
+    <div style={{ marginTop:12, background:"white", border:"1.5px solid #DBEAFE", borderRadius:10, padding:"13px 15px", boxShadow:"0 4px 20px rgba(37,99,235,0.08)" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:11 }}>
+        <span style={{ fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#1E293B", textTransform:"uppercase", letterSpacing:"0.07em" }}>{title}</span>
+        <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", color:"#94A3B8", fontSize:17, lineHeight:1 }}>×</button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function StatPill({ label, value, color }) {
+  return (
+    <div style={{ display:"flex", gap:5, alignItems:"center", background:"#F8FAFC", border:"1.5px solid #E2E8F0", borderRadius:20, padding:"3px 10px" }}>
+      <span style={{ width:7, height:7, borderRadius:"50%", background:color, display:"inline-block" }} />
+      <span style={{ fontSize:11, fontFamily:"'DM Mono',monospace", color:"#475569" }}>{label}: </span>
+      <span style={{ fontSize:12, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#1E293B" }}>{value}</span>
+    </div>
+  );
+}
+
+function StatCard({ label, value, color }) {
+  return (
+    <div style={{ background:"#F8FAFC", border:"1.5px solid #E2E8F0", borderRadius:10, padding:"11px 16px", minWidth:85 }}>
+      <div style={{ fontSize:19, fontWeight:800, fontFamily:"'DM Mono',monospace", color }}>{value}</div>
+      <div style={{ fontSize:10, textTransform:"uppercase", letterSpacing:"0.07em", color:"#94A3B8", marginTop:2, fontFamily:"'DM Sans',sans-serif" }}>{label}</div>
+    </div>
+  );
+}
+
+// ─── FloorplanCanvas ───────────────────────────────────────────────────────────
+
+function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], hoverPoint=null, onCanvasClick, onCanvasMouseMove, onCanvasMouseLeave, events=[], markers=[], pendingPos=null, height=480 }) {
+  const canvasRef = useRef(null);
+  const imgRef = useRef(null);
+  const [imgLoaded, setImgLoaded] = useState(false);
 
   useEffect(() => {
-    if (!playbackEnabled || !isPlaying) return;
-    if (!playbackWindow) return;
-
-    const { minT, maxT } = playbackWindow;
-    const total = Math.max(1, maxT - minT);
-    const stepMs = 120 * playbackSpeed;
-
-    const id = setInterval(() => {
-      setPlaybackPos((p) => {
-        const currentT = minT + (total * p) / 1000;
-        const nextT = currentT + stepMs;
-        const nextP = Math.round(((nextT - minT) / total) * 1000);
-        if (nextP >= 1000) {
-          setIsPlaying(false);
-          return 1000;
-        }
-        return Math.max(0, Math.min(1000, nextP));
-      });
-    }, 120);
-
-    return () => clearInterval(id);
-  }, [playbackEnabled, isPlaying, playbackSpeed, playbackWindow]);
+    if (!imageUrl) { setImgLoaded(false); return; }
+    const img = new Image();
+    img.onload = () => { imgRef.current = img; setImgLoaded(true); };
+    img.src = imageUrl;
+  }, [imageUrl]);
 
   useEffect(() => {
-    if (playbackEnabled) setPlaybackPos(1000);
-    setIsPlaying(false);
-  }, [playbackEnabled]);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Auto-send loop (1 per second)
-  useEffect(() => {
-    if (!autoSendEnabled) return;
-
-    const id = window.setInterval(async () => {
-      const candidate = markersSorted.find(
-        (m) => (m.source ?? "live") !== "import" && (m.cloudStatus === "pending" || m.cloudStatus === "fail")
-      );
-
-      if (!candidate) {
-        setSendLoopStatus("idle");
-        return;
-      }
-
-      setSendLoopStatus("sending");
-      try {
-        await sendToSheets({
-          created_at_iso: new Date(candidate.createdAt).toISOString(),
-          observer: candidate.observerName,
-          site: candidate.buildingSite,
-          interval_minutes: intervalMinutes,
-          interval_index: candidate.intervalIndex,
-          interval_label: candidate.intervalLabel,
-          badge: candidate.badgeNumber,
-          role: candidate.role,
-          activity: candidate.activity,
-          group: candidate.isGroup,
-          x_norm: candidate.x,
-          y_norm: candidate.y,
-          zone: candidate.zone,
-          note: candidate.note,
-        });
-
-        setMarkers((prev) => {
-          const copy = [...prev];
-          const i = copy.findIndex((m) => m.id === candidate.id);
-          if (i >= 0) copy[i] = { ...copy[i], cloudStatus: "ok" };
-          return copy;
-        });
-
-        setSendLoopStatus("ok");
-        setLastSendAt(Date.now());
-      } catch {
-        setMarkers((prev) => {
-          const copy = [...prev];
-          const i = copy.findIndex((m) => m.id === candidate.id);
-          if (i >= 0) copy[i] = { ...copy[i], cloudStatus: "fail" };
-          return copy;
-        });
-        setSendLoopStatus("fail");
-      }
-    }, 1000);
-
-    return () => window.clearInterval(id);
-  }, [autoSendEnabled, markersSorted, intervalMinutes]);
-
-  // Controls
-  function start() {
-    const now = Date.now();
-    setIntervalStart(now);
-    setIntervalIndex(0);
-    setTimeLeft(intervalSeconds);
-    setIsRunning(true);
-    setStatusMsg("");
-  }
-  function pauseResume() {
-    if (!isRunning) {
-      const now = Date.now();
-      setIntervalStart(now);
-      setTimeLeft(intervalSeconds);
-      setIsRunning(true);
-      setStatusMsg("");
+    // Background
+    if (imageUrl && imgRef.current && imgLoaded) {
+      ctx.drawImage(imgRef.current, 0, 0, canvas.width, canvas.height);
     } else {
-      setIsRunning(false);
-      setStatusMsg("Paused");
+      ctx.fillStyle = "#F1F5F9";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Grid lines
+      ctx.strokeStyle = "#E2E8F0"; ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
+      for (let y = 0; y < canvas.height; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+      ctx.fillStyle = "#CBD5E1"; ctx.font = "13px DM Mono,monospace"; ctx.textAlign = "center";
+      ctx.fillText("Upload a floorplan image in the Setup tab", canvas.width/2, canvas.height/2 - 10);
+      ctx.fillText("then draw zones by clicking on it", canvas.width/2, canvas.height/2 + 10);
+      ctx.textAlign = "left";
     }
-  }
-  function reset() {
-    setIsRunning(false);
-    setIntervalStart(null);
-    setIntervalIndex(0);
-    setTimeLeft(intervalSeconds);
-    setMarkers([]);
-    setStatusMsg("Reset");
-    setLastRecorded("");
-    setIsPlaying(false);
-    setPlaybackEnabled(false);
-    setPlaybackPos(1000);
-  }
 
-  function exportCSV() {
-    const header = [
-      "created_at_iso",
-      "observer",
-      "site",
-      "interval_minutes",
-      "interval_index",
-      "interval_label",
-      "badge",
-      "role",
-      "activity",
-      "group",
-      "x_norm",
-      "y_norm",
-      "zone",
-      "note",
-      "cloud_status",
-      "source",
-    ];
-
-    const rows = markers.map((m) => {
-      return [
-        new Date(m.createdAt).toISOString(),
-        m.observerName,
-        m.buildingSite,
-        String(intervalMinutes),
-        String(m.intervalIndex),
-        m.intervalLabel,
-        m.badgeNumber,
-        m.role,
-        m.activity,
-        m.isGroup ? "1" : "0",
-        m.x.toFixed(6),
-        m.y.toFixed(6),
-        m.zone,
-        m.note ?? "",
-        m.cloudStatus ?? "",
-        m.source ?? "live",
-      ].map(csvEscape);
+    // Completed zones
+    zones.forEach((zone, idx) => {
+      if (!zone.points || zone.points.length < 2) return;
+      const color = zoneColor(zone, idx);
+      ctx.beginPath();
+      ctx.moveTo(zone.points[0].x, zone.points[0].y);
+      zone.points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.closePath();
+      ctx.fillStyle = color + "30"; ctx.fill();
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([]); ctx.stroke();
+      // Label
+      const c = polygonCentroid(zone.points);
+      ctx.font = "bold 11px DM Mono,monospace"; ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      const tw = ctx.measureText(zone.name).width;
+      ctx.fillRect(c.x - tw/2 - 4, c.y - 11, tw + 8, 16);
+      ctx.fillStyle = color; ctx.fillText(zone.name, c.x, c.y); ctx.textAlign = "left";
+      // Vertices
+      zone.points.forEach(p => { ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fillStyle=color; ctx.fill(); });
     });
 
-    const csv = [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `mission_observations_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-  }
-
-  function onPickCSV() {
-    fileInputRef.current?.click();
-  }
-
-  async function handleImportCSV(file: File) {
-    setStatusMsg("");
-    try {
-      const text = await file.text();
-      const rows = parseCSV(text);
-      if (rows.length < 2) return setStatusMsg("CSV looks empty.");
-
-      const header = rows[0].map((h) => h.trim());
-      const idx = (name: string) => header.indexOf(name);
-
-      const required = [
-        "created_at_iso",
-        "observer",
-        "site",
-        "interval_minutes",
-        "interval_index",
-        "interval_label",
-        "badge",
-        "role",
-        "activity",
-        "group",
-        "x_norm",
-        "y_norm",
-        "zone",
-        "note",
-      ];
-      const missing = required.filter((k) => idx(k) === -1);
-      if (missing.length) return setStatusMsg(`CSV missing columns: ${missing.join(", ")}`);
-
-      const roleKeys = new Set(ROLES.map((r) => r.key));
-      const activityKeys = new Set(ACTIVITY.map((a) => a.key));
-
-      const imported: Marker[] = rows.slice(1).map((r) => {
-        const createdAt = Date.parse(r[idx("created_at_iso")] || "") || Date.now();
-        const x = Number(r[idx("x_norm")] || 0);
-        const y = Number(r[idx("y_norm")] || 0);
-
-        const roleRaw = (r[idx("role")] || "pilot") as RoleType;
-        const activityRaw = (r[idx("activity")] || "walking") as ActivityType;
-
-        const safeRole: RoleType = roleKeys.has(roleRaw) ? roleRaw : "visitor_other";
-        const safeActivity: ActivityType = activityKeys.has(activityRaw) ? activityRaw : "walking";
-
-        const groupStr = String(r[idx("group")] || "").trim();
-        const isGroup = groupStr === "1" || groupStr.toLowerCase() === "true";
-
-        return {
-          id: uid(),
-          createdAt,
-          intervalIndex: Number(r[idx("interval_index")] || 0),
-          intervalLabel: r[idx("interval_label")] || "—",
-          observerName: r[idx("observer")] || "Observer 1",
-          buildingSite: r[idx("site")] || "Habitat A",
-          badgeNumber: r[idx("badge")] || "",
-          role: safeRole,
-          activity: safeActivity,
-          isGroup,
-          x: clamp01(isFinite(x) ? x : 0),
-          y: clamp01(isFinite(y) ? y : 0),
-          zone: r[idx("zone")] || zoneForPointFromZones(x, y, zones),
-          note: r[idx("note")] || "",
-          cloudStatus: "ok",
-          source: "import",
-        };
+    // Draft polygon
+    if (drawingMode && draftPoints.length > 0) {
+      ctx.strokeStyle = "#F59E0B"; ctx.lineWidth = 2; ctx.setLineDash([5,4]);
+      ctx.beginPath(); ctx.moveTo(draftPoints[0].x, draftPoints[0].y);
+      draftPoints.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+      if (hoverPoint) ctx.lineTo(hoverPoint.x, hoverPoint.y);
+      ctx.stroke(); ctx.setLineDash([]);
+      draftPoints.forEach((p, i) => {
+        ctx.beginPath(); ctx.arc(p.x, p.y, i===0?7:4, 0, Math.PI*2);
+        ctx.fillStyle = i===0?"#F59E0B":"#FCD34D"; ctx.strokeStyle="white"; ctx.lineWidth=1.5; ctx.fill(); ctx.stroke();
       });
-
-      if (importMode === "replace") setMarkers(imported);
-      else setMarkers((prev) => [...prev, ...imported]);
-
-      setPlaybackEnabled(true);
-      setPlaybackPos(1000);
-      setIsPlaying(false);
-      setStatusMsg(`Loaded ${imported.length} markers from CSV (${importMode}).`);
-      setTab("review");
-    } catch (err: any) {
-      setStatusMsg(`Import failed: ${String(err)}`);
+      if (draftPoints.length >= 3 && hoverPoint) {
+        const fp = draftPoints[0];
+        if (Math.hypot(hoverPoint.x-fp.x, hoverPoint.y-fp.y) < 16) {
+          ctx.beginPath(); ctx.arc(fp.x,fp.y,13,0,Math.PI*2); ctx.strokeStyle="#F59E0B"; ctx.lineWidth=2.5; ctx.stroke();
+        }
+      }
     }
-  }
 
-  // Main click handler (collect)
-  function handleCollectClick(e: React.MouseEvent) {
-    setStatusMsg("");
-    if (!isRunning || intervalStart === null) return setStatusMsg("Press Start to begin recording.");
-    if (!badgeNumber.trim()) return setStatusMsg("Enter a badge number before recording.");
-
-    const el = containerRef.current;
-    if (!el) return;
-
-    const rect = el.getBoundingClientRect();
-    const x = clamp01((e.clientX - rect.left) / rect.width);
-    const y = clamp01((e.clientY - rect.top) / rect.height);
-
-    const zone = zoneForPointFromZones(x, y, zones);
-
-    const base: Marker = {
-      id: uid(),
-      createdAt: Date.now(),
-      intervalIndex,
-      intervalLabel,
-      observerName,
-      buildingSite,
-      badgeNumber: badgeNumber.trim(),
-      role,
-      activity,
-      isGroup,
-      x,
-      y,
-      zone,
-      note,
-      cloudStatus: autoSendEnabled ? "pending" : "fail",
-      source: "live",
-    };
-
-    setMarkers((prev) => [...prev, base]);
-    setLastRecorded(
-      `Recorded: badge ${base.badgeNumber} · ${ROLES.find((r) => r.key === base.role)?.label} · ${
-        ACTIVITY.find((a) => a.key === base.activity)?.label
-      } · ${base.zone}`
-    );
-  }
-
-  // Review pipeline: filters + playback
-  const filteredMarkers = useMemo(() => {
-    const badgeQ = filterBadge.trim().toLowerCase();
-    return markersSorted.filter((m) => {
-      if (filterRole !== "all" && m.role !== filterRole) return false;
-      if (filterActivity !== "all" && m.activity !== filterActivity) return false;
-      if (filterGroupOnly && !m.isGroup) return false;
-      if (badgeQ && !(m.badgeNumber || "").toLowerCase().includes(badgeQ)) return false;
-      return true;
+    // Events
+    events.forEach(ev => {
+      const color = getEventColor(ev.eventType);
+      ctx.beginPath(); ctx.arc(ev.x, ev.y, 6, 0, Math.PI*2);
+      ctx.fillStyle = ev.endTime ? color+"70" : color; ctx.fill();
+      ctx.strokeStyle = "white"; ctx.lineWidth = 1.5; ctx.stroke();
     });
-  }, [markersSorted, filterBadge, filterRole, filterActivity, filterGroupOnly]);
 
-  const reviewMarkers = useMemo(() => {
-    if (!playbackEnabled || !playbackCutoffTime) return filteredMarkers;
-    return filteredMarkers.filter((m) => m.createdAt <= playbackCutoffTime);
-  }, [filteredMarkers, playbackEnabled, playbackCutoffTime]);
+    // Markers (triangles)
+    markers.forEach(m => {
+      const color = m.markerType==="stress" ? "#DC2626" : "#059669";
+      ctx.beginPath(); ctx.moveTo(m.x, m.y-7); ctx.lineTo(m.x+6, m.y+5); ctx.lineTo(m.x-6, m.y+5); ctx.closePath();
+      ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle="white"; ctx.lineWidth=1.5; ctx.stroke();
+    });
 
-  const thisIntervalCount = useMemo(
-    () => markers.filter((m) => m.intervalIndex === intervalIndex).length,
-    [markers, intervalIndex]
-  );
-
-  const playbackLabel = useMemo(() => {
-    if (!playbackEnabled || !playbackWindow || playbackCutoffTime === null) return null;
-    return `Playback time: ${formatHMS(new Date(playbackCutoffTime))}`;
-  }, [playbackEnabled, playbackWindow, playbackCutoffTime]);
-
-  const legendCounts = useMemo(() => {
-    const byActivity = new Map<ActivityType, number>();
-    for (const a of ACTIVITY) byActivity.set(a.key, 0);
-    for (const m of reviewMarkers) byActivity.set(m.activity, (byActivity.get(m.activity) || 0) + 1);
-    return { byActivity, total: reviewMarkers.length };
-  }, [reviewMarkers]);
-
-  function clearFilters() {
-    setFilterBadge("");
-    setFilterRole("all");
-    setFilterActivity("all");
-    setFilterGroupOnly(false);
-  }
-
-  // Heatmap computed from reviewMarkers (after filters + playback)
-  const heatCells = useMemo(() => {
-    if (!(tab === "review" && heatmapOn)) return [];
-    const pts = reviewMarkers.map((m) => ({ x: m.x, y: m.y }));
-    return buildHeatmapGrid(pts, heatGrid);
-  }, [tab, heatmapOn, heatGrid, reviewMarkers]);
-
-  // Zone drawing helpers
-  function planPointFromEvent(e: React.MouseEvent) {
-    const el = containerRef.current;
-    if (!el) return null;
-    const rect = el.getBoundingClientRect();
-    const x = clamp01((e.clientX - rect.left) / rect.width);
-    const y = clamp01((e.clientY - rect.top) / rect.height);
-    return { x, y };
-  }
-
-  function onPlanMouseDown(e: React.MouseEvent) {
-    if (!(tab === "review" && zoneEditorOn)) return;
-    const p = planPointFromEvent(e);
-    if (!p) return;
-    setIsDrawingZone(true);
-    setDragStart(p);
-    setDragNow(p);
-  }
-
-  function onPlanMouseMove(e: React.MouseEvent) {
-    if (!(tab === "review" && zoneEditorOn && isDrawingZone)) return;
-    const p = planPointFromEvent(e);
-    if (!p) return;
-    setDragNow(p);
-  }
-
-  function onPlanMouseUp() {
-    if (!(tab === "review" && zoneEditorOn && isDrawingZone && dragStart && dragNow)) {
-      setIsDrawingZone(false);
-      setDragStart(null);
-      setDragNow(null);
-      return;
+    // Pending ring
+    if (pendingPos) {
+      ctx.beginPath(); ctx.arc(pendingPos.x, pendingPos.y, 10, 0, Math.PI*2);
+      ctx.strokeStyle="#2563EB"; ctx.lineWidth=2; ctx.stroke();
+      ctx.fillStyle="rgba(37,99,235,0.15)"; ctx.fill();
     }
+  }, [imageUrl, imgLoaded, zones, drawingMode, draftPoints, hoverPoint, events, markers, pendingPos]);
 
-    const r = rectNormalize(dragStart, dragNow);
-    const minSize = 0.01;
-    if (r.x2 - r.x1 < minSize || r.y2 - r.y1 < minSize) {
-      setIsDrawingZone(false);
-      setDragStart(null);
-      setDragNow(null);
-      return;
-    }
-
-    const name = (zoneDraftName || "Zone").trim();
-    const newZone: ZoneRect = {
-      id: uid(),
-      name,
-      x1: r.x1,
-      y1: r.y1,
-      x2: r.x2,
-      y2: r.y2,
-      createdAt: Date.now(),
-    };
-    setZones((prev) => [newZone, ...prev]);
-    setIsDrawingZone(false);
-    setDragStart(null);
-    setDragNow(null);
+  function getPos(e) {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const sx = canvasRef.current.width / rect.width;
+    const sy = canvasRef.current.height / rect.height;
+    return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy) };
   }
-
-  function deleteZone(id: string) {
-    setZones((prev) => prev.filter((z) => z.id !== id));
-  }
-
-  function recomputeZonesForAllMarkers() {
-    setMarkers((prev) =>
-      prev.map((m) => ({
-        ...m,
-        zone: zoneForPointFromZones(m.x, m.y, zones),
-      }))
-    );
-    setStatusMsg("Recomputed zones for all markers using current zone rectangles.");
-  }
-
-  function cloudBadgeText() {
-    if (!autoSendEnabled) return "Auto-send: OFF";
-    if (sendLoopStatus === "sending") return "Auto-send: sending…";
-    if (sendLoopStatus === "ok") return "Auto-send: OK";
-    if (sendLoopStatus === "fail") return "Auto-send: FAIL (retrying)";
-    return "Auto-send: idle";
-  }
-
-  // Dots: Collect shows all; Review shows reviewMarkers
-  const markersToRender = tab === "collect" ? markersSorted : reviewMarkers;
-
-  // Zone overlay toggles (Review)
-  const [showZonesFill, setShowZonesFill] = useState(true);
-  const [showZonesOutline, setShowZonesOutline] = useState(true);
-  const [showZoneLabels, setShowZoneLabels] = useState(false);
 
   return (
-    <div style={{ background: "#fff", minHeight: "100vh", color: "#111", paddingBottom: 84 }}>
-      {/* HEADER */}
-      <header
-        style={{
-          borderBottom: "1px solid #e5e7eb",
-          padding: "14px 20px",
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-        }}
-      >
-        <img src="/logoCCAweb.png" alt="CCA logo" style={{ height: 46 }} />
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ fontWeight: 900, fontSize: 16 }}>Analogue Mission Observation Mapper</div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>University of Cambridge</div>
+    <canvas ref={canvasRef} width={1000} height={600}
+      onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
+      onMouseMove={onCanvasMouseMove ? e => onCanvasMouseMove(getPos(e)) : undefined}
+      onMouseLeave={onCanvasMouseLeave}
+      style={{ width:"100%", height:height, borderRadius:10, display:"block", cursor:"crosshair" }}
+    />
+  );
+}
+
+// ─── Setup Tab ─────────────────────────────────────────────────────────────────
+
+function SetupTab({ session, setSession, study, updateStudy, zones, setZones, floorplanUrl, setFloorplanUrl }) {
+  const [drawingZone, setDrawingZone] = useState(false);
+  const [draftPoints, setDraftPoints] = useState([]);
+  const [hoverPoint, setHoverPoint] = useState(null);
+  const [pendingName, setPendingName] = useState("");
+  const [awaitingName, setAwaitingName] = useState(false);
+  const [completedPoly, setCompletedPoly] = useState(null);
+  const fileRef = useRef(null);
+
+  function updateSession(key, val) { setSession(s => ({...s, [key]: val})); }
+
+  function handleImageFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => setFloorplanUrl(e.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  function handleCanvasClick(pos) {
+    if (!drawingZone) return;
+    if (draftPoints.length >= 3) {
+      const fp = draftPoints[0];
+      if (Math.hypot(pos.x - fp.x, pos.y - fp.y) < 16) {
+        setCompletedPoly([...draftPoints]);
+        setDraftPoints([]); setHoverPoint(null);
+        setDrawingZone(false); setAwaitingName(true); setPendingName("");
+        return;
+      }
+    }
+    setDraftPoints(pts => [...pts, pos]);
+  }
+
+  function confirmZoneName() {
+    if (!pendingName.trim() || !completedPoly) return;
+    setZones(z => {
+      const color = pickZoneColor(z);
+      return [...z, { id: "Z-" + Date.now(), name: pendingName.trim(), points: completedPoly, color }];
+    });
+    setCompletedPoly(null); setPendingName(""); setAwaitingName(false);
+  }
+
+  function cancelDraft() {
+    setDraftPoints([]); setHoverPoint(null);
+    setDrawingZone(false); setAwaitingName(false); setCompletedPoly(null);
+  }
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      {/* Hidden file input — kept at top level so ref is always mounted */}
+      <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => handleImageFile(e.target.files[0])} />
+
+      {/* ── TOP STRIP: session details horizontally ── */}
+      <div style={{ background:"white", border:"1.5px solid #E2E8F0", borderRadius:10, padding:"13px 16px" }}>
+        <SectionHeader>Session Details</SectionHeader>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(6, 1fr)", gap:10, alignItems:"end" }}>
+          <Field label="Date"><Input value={session.date} onChange={v=>updateSession("date",v)} type="date" /></Field>
+          <Field label="Observer ID"><Input value={session.observerId} onChange={v=>updateSession("observerId",v)} placeholder="OBS-01" /></Field>
+          <Field label="Hospital"><Input value={study.hospital} onChange={v=>updateStudy("hospital",v)} placeholder="Trust / Hospital" /></Field>
+          <Field label="Department"><Input value={study.department} onChange={v=>updateStudy("department",v)} placeholder="ED, ICU…" /></Field>
+          <Field label="Shift Type"><Select value={session.shiftType} onChange={v=>updateSession("shiftType",v)} options={SHIFT_TYPES} /></Field>
+          <Field label="Dept. Status"><Select value={session.departmentalStatus} onChange={v=>updateSession("departmentalStatus",v)} options={DEPARTMENTAL_STATUS} /></Field>
         </div>
-
-        <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={styles.pill}>Tab: {tab === "collect" ? "Collect" : "Review"}</span>
-          <span style={styles.pill}>Markers: {markers.length}</span>
-          <span style={styles.pill}>{cloudBadgeText()}</span>
-          {lastSendAt ? <span style={styles.pill}>Last send: {formatHMS(new Date(lastSendAt))}</span> : null}
+        <div style={{ marginTop:6, marginBottom:4, fontSize:10, color:"#94A3B8", fontFamily:"'DM Mono',monospace" }}>
+          Hospital &amp; Department are shared across participants and will not reset on New Participant.
         </div>
-      </header>
-
-      <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
-        {/* ===== COLLECT TAB ===== */}
-        {tab === "collect" && (
-          <div
-            style={{
-              border: "1px solid #e5e7eb",
-              borderRadius: 14,
-              padding: 14,
-              background: "#fff",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-            }}
-          >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1.2fr 1.2fr 0.8fr 1.8fr",
-                gap: 12,
-                alignItems: "end",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Observer</div>
-                <select style={styles.select} value={observerName} onChange={(e) => setObserverName(e.target.value)}>
-                  <option>Observer 1</option>
-                  <option>Observer 2</option>
-                  <option>Observer 3</option>
-                </select>
-              </div>
-
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Site</div>
-                <select style={styles.select} value={buildingSite} onChange={(e) => setBuildingSite(e.target.value)}>
-                  <option>Habitat A</option>
-                  <option>Habitat B</option>
-                  <option>Control Room</option>
-                  <option>Lab Module</option>
-                  <option>Airlock / EVA Prep</option>
-                </select>
-              </div>
-
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Interval (min)</div>
-                <input
-                  style={styles.input}
-                  type="number"
-                  min={1}
-                  value={intervalMinutes}
-                  disabled={isRunning}
-                  onChange={(e) => setIntervalMinutes(Number(e.target.value || 5))}
-                />
-              </div>
-
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                <button style={styles.buttonPrimary} onClick={start}>
-                  Start
+        <div style={{ display:"flex", gap:16, alignItems:"center", marginTop:10, flexWrap:"wrap" }}>
+          {/* Observation mode inline */}
+          <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+            <span style={{ fontSize:10, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", color:"#64748B", fontFamily:"'DM Mono',monospace" }}>Mode</span>
+            {[{ id:"zone", label:"⬡ Zone Observation" }, { id:"person", label:"◎ Person Tracking" }].map(mode => {
+              const active = session.observationMode === mode.id;
+              return (
+                <button key={mode.id} onClick={() => updateSession("observationMode", mode.id)}
+                  style={{ border:"1.5px solid "+(active?"#2563EB":"#E2E8F0"), borderRadius:6, background:active?"#EFF6FF":"white", padding:"5px 12px", cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"'DM Sans',sans-serif", color:active?"#2563EB":"#94A3B8", transition:"all 0.12s" }}>
+                  {mode.label}
                 </button>
-                <button style={styles.buttonSecondary} onClick={pauseResume}>
-                  {isRunning ? "Pause" : "Resume"}
-                </button>
-                <button style={styles.buttonSecondary} onClick={exportCSV} disabled={!markers.length}>
-                  Export CSV
-                </button>
-                <button
-                  style={{
-                    ...styles.buttonSecondary,
-                    borderColor: autoSendEnabled ? "#111" : "#d0d5dd",
-                    background: autoSendEnabled ? "#111" : "#fff",
-                    color: autoSendEnabled ? "#fff" : "#111",
-                  }}
-                  onClick={() => setAutoSendEnabled((v) => !v)}
-                >
-                  Auto-send {autoSendEnabled ? "ON" : "OFF"}
-                </button>
-                <button style={styles.buttonSecondary} onClick={reset}>
-                  Reset
-                </button>
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1.2fr 1fr 1fr auto",
-                gap: 12,
-                marginTop: 12,
-                alignItems: "end",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Badge number (shadowed person)</div>
-                <input
-                  style={styles.input}
-                  value={badgeNumber}
-                  onChange={(e) => setBadgeNumber(e.target.value)}
-                  placeholder="e.g., 014"
-                />
-              </div>
-
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Role</div>
-                <select style={styles.select} value={role} onChange={(e) => setRole(e.target.value as RoleType)}>
-                  {ROLES.map((r) => (
-                    <option key={r.key} value={r.key}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Note (optional)</div>
-                <input
-                  style={styles.input}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="e.g., pre-EVA checklist / quiet reading"
-                />
-              </div>
-
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900 }}>
-                <input type="checkbox" checked={isGroup} onChange={(e) => setIsGroup(e.target.checked)} />
-                Group
-              </label>
-            </div>
-
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>Activity</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {ACTIVITY.map((a) => {
-                  const selected = a.key === activity;
-                  return (
-                    <button
-                      key={a.key}
-                      onClick={() => setActivity(a.key)}
-                      style={{
-                        padding: "9px 12px",
-                        borderRadius: 999,
-                        border: selected ? "2px solid #111" : "1px solid #d0d5dd",
-                        background: selected ? "#111" : "#fff",
-                        color: selected ? "#fff" : "#111",
-                        fontWeight: 900,
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 10,
-                          height: 10,
-                          borderRadius: 999,
-                          background: a.color,
-                          outline: selected ? "2px solid rgba(255,255,255,0.7)" : "none",
-                        }}
-                      />
-                      {a.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div style={{ marginTop: 12, fontSize: 13 }}>
-              <span style={{ fontWeight: 900 }}>
-                Interval: {intervalLabel} · Time left: {timerText} · Markers: {markers.length} · This interval:{" "}
-                {thisIntervalCount}
-              </span>
-              {statusMsg ? (
-                <span style={{ marginLeft: 10, color: "#b42318", fontWeight: 900 }}>
-                  {statusMsg}
-                </span>
-              ) : null}
-              {lastRecorded ? <div style={{ marginTop: 6, opacity: 0.8 }}>{lastRecorded}</div> : null}
-            </div>
+              );
+            })}
           </div>
-        )}
+          <label style={{ display:"flex", gap:7, alignItems:"center", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", color:"#475569", marginLeft:"auto" }}>
+            <input type="checkbox" checked={!!session.protocolChecked} onChange={e=>updateSession("protocolChecked", e.target.checked)} />
+            Protocol compliance confirmed
+          </label>
+          <div style={{ padding:"4px 10px", background:"#F0FDF4", border:"1px solid #BBF7D0", borderRadius:5, fontSize:10, color:"#166534", fontFamily:"'DM Mono',monospace" }}>
+            ID: {session.sessionId}
+          </div>
+        </div>
+      </div>
 
-        {/* ===== REVIEW TAB ===== */}
-        {tab === "review" && (
-          <>
-            <div
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: 14,
-                padding: 14,
-                background: "#fff",
-                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-              }}
-            >
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button style={styles.buttonSecondary} onClick={exportCSV} disabled={!markers.length}>
-                    Export CSV
-                  </button>
+      {/* ── MAIN ROW: floorplan left, participant + zones right ── */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 320px", gap:20 }}>
 
-                  <button style={styles.buttonSecondary} onClick={onPickCSV}>
-                    Load CSV (replay)
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".csv,text/csv"
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleImportCSV(f);
-                      if (e.target) e.target.value = "";
-                    }}
-                  />
+        {/* Left: floorplan & zone drawing */}
+        <div>
+          <SectionHeader>Floorplan & Zone Drawing</SectionHeader>
 
-                  <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
-                    <span style={{ opacity: 0.75 }}>Import mode</span>
-                    <select
-                      style={{ ...styles.select, width: 160, padding: "8px 10px" }}
-                      value={importMode}
-                      onChange={(e) => setImportMode(e.target.value as any)}
-                    >
-                      <option value="replace">Replace</option>
-                      <option value="append">Append</option>
-                    </select>
-                  </label>
+          <div style={{ display:"flex", gap:8, marginBottom:10, alignItems:"center" }}>
+            <Btn onClick={() => fileRef.current.click()} variant="outline">⬆ Upload Floorplan</Btn>
+            {floorplanUrl && <Btn onClick={() => setFloorplanUrl(null)} variant="ghost" small>Remove</Btn>}
+            <span style={{ fontSize:10, color:"#94A3B8", fontFamily:"'DM Mono',monospace" }}>PNG · JPG · GIF</span>
+          </div>
 
-                  <button
-                    style={styles.buttonSecondary}
-                    onClick={() => {
-                      setPlaybackEnabled((v) => !v);
-                      setIsPlaying(false);
-                    }}
-                  >
-                    Playback {playbackEnabled ? "ON" : "OFF"}
-                  </button>
-
-                  <button style={styles.buttonSecondary} onClick={recomputeZonesForAllMarkers} disabled={!zones.length}>
-                    Recompute zones
-                  </button>
-                </div>
-
-                <div style={{ fontSize: 12, opacity: 0.85 }}>
-                  Heatmap + zones are based on filtered markers (and playback if enabled).
-                </div>
-              </div>
-
-              {/* Playback row */}
-              {playbackEnabled && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    paddingTop: 12,
-                    borderTop: "1px solid #eef2f7",
-                    display: "flex",
-                    gap: 12,
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <button
-                    style={styles.buttonSecondary}
-                    onClick={() => setIsPlaying((p) => !p)}
-                    disabled={markersSorted.length === 0}
-                  >
-                    {isPlaying ? "Pause replay" : "Play replay"}
-                  </button>
-
-                  <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
-                    <span style={{ opacity: 0.75 }}>Speed</span>
-                    <select
-                      style={{ ...styles.select, width: 110, padding: "8px 10px" }}
-                      value={playbackSpeed}
-                      onChange={(e) => setPlaybackSpeed(Number(e.target.value) as any)}
-                    >
-                      <option value={1}>1×</option>
-                      <option value={2}>2×</option>
-                      <option value={4}>4×</option>
-                      <option value={8}>8×</option>
-                    </select>
-                  </label>
-
-                  <button
-                    style={styles.buttonSecondary}
-                    onClick={() => {
-                      setIsPlaying(false);
-                      setPlaybackPos(0);
-                    }}
-                    disabled={markersSorted.length === 0}
-                  >
-                    Rewind
-                  </button>
-
-                  <button
-                    style={styles.buttonSecondary}
-                    onClick={() => {
-                      setIsPlaying(false);
-                      setPlaybackPos(1000);
-                    }}
-                    disabled={markersSorted.length === 0}
-                  >
-                    End
-                  </button>
-
-                  <div style={{ marginLeft: "auto", fontSize: 12, opacity: 0.8 }}>
-                    {playbackLabel ?? "Playback: no data yet."}
-                  </div>
-
-                  <div style={{ width: "100%" }}>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1000}
-                      value={playbackPos}
-                      onChange={(e) => {
-                        setIsPlaying(false);
-                        setPlaybackPos(Number(e.target.value));
-                      }}
-                      style={{ width: "100%" }}
-                      disabled={markersSorted.length === 0}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Filters */}
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #eef2f7" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontWeight: 900, fontSize: 13 }}>Filters</div>
-                  <button style={styles.buttonSecondary} onClick={clearFilters}>
-                    Clear filters
-                  </button>
-                </div>
-
-                <div
-                  style={{
-                    marginTop: 10,
-                    display: "grid",
-                    gridTemplateColumns: "1.2fr 1fr 1fr auto",
-                    gap: 12,
-                    alignItems: "end",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Badge contains</div>
-                    <input
-                      style={styles.input}
-                      value={filterBadge}
-                      onChange={(e) => setFilterBadge(e.target.value)}
-                      placeholder="e.g., 014"
-                    />
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Role</div>
-                    <select style={styles.select} value={filterRole} onChange={(e) => setFilterRole(e.target.value as any)}>
-                      <option value="all">All roles</option>
-                      {ROLES.map((r) => (
-                        <option key={r.key} value={r.key}>
-                          {r.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Activity</div>
-                    <select
-                      style={styles.select}
-                      value={filterActivity}
-                      onChange={(e) => setFilterActivity(e.target.value as any)}
-                    >
-                      <option value="all">All activities</option>
-                      {ACTIVITY.map((a) => (
-                        <option key={a.key} value={a.key}>
-                          {a.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900 }}>
-                    <input type="checkbox" checked={filterGroupOnly} onChange={(e) => setFilterGroupOnly(e.target.checked)} />
-                    Group only
-                  </label>
-                </div>
-
-                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <span style={styles.pill}>Showing: {reviewMarkers.length}</span>
-                  <span style={styles.pill}>Total stored: {markers.length}</span>
-                  <span style={styles.pill}>Zones: {zones.length}</span>
-                </div>
-              </div>
-
-              {/* Heatmap + zone overlay controls */}
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #eef2f7" }}>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                  <button
-                    style={{
-                      ...styles.buttonSecondary,
-                      borderColor: heatmapOn ? "#111" : "#d0d5dd",
-                      background: heatmapOn ? "#111" : "#fff",
-                      color: heatmapOn ? "#fff" : "#111",
-                    }}
-                    onClick={() => setHeatmapOn((v) => !v)}
-                  >
-                    Heatmap {heatmapOn ? "ON" : "OFF"}
-                  </button>
-
-                  <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
-                    <span style={{ opacity: 0.75 }}>Grid</span>
-                    <input
-                      type="range"
-                      min={20}
-                      max={120}
-                      value={heatGrid}
-                      onChange={(e) => setHeatGrid(Number(e.target.value))}
-                    />
-                    <span style={{ width: 34, textAlign: "right" }}>{heatGrid}</span>
-                  </label>
-
-                  <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
-                    <span style={{ opacity: 0.75 }}>Strength</span>
-                    <input
-                      type="range"
-                      min={0.1}
-                      max={1}
-                      step={0.05}
-                      value={heatStrength}
-                      onChange={(e) => setHeatStrength(Number(e.target.value))}
-                    />
-                    <span style={{ width: 42, textAlign: "right" }}>{heatStrength.toFixed(2)}</span>
-                  </label>
-
-                  <button
-                    style={{
-                      ...styles.buttonSecondary,
-                      borderColor: showZonesFill ? "#111" : "#d0d5dd",
-                      background: showZonesFill ? "#111" : "#fff",
-                      color: showZonesFill ? "#fff" : "#111",
-                    }}
-                    onClick={() => setShowZonesFill((v) => !v)}
-                  >
-                    Zones fill {showZonesFill ? "ON" : "OFF"}
-                  </button>
-
-                  <button
-                    style={{
-                      ...styles.buttonSecondary,
-                      borderColor: showZonesOutline ? "#111" : "#d0d5dd",
-                      background: showZonesOutline ? "#111" : "#fff",
-                      color: showZonesOutline ? "#fff" : "#111",
-                    }}
-                    onClick={() => setShowZonesOutline((v) => !v)}
-                  >
-                    Zone outline {showZonesOutline ? "ON" : "OFF"}
-                  </button>
-
-                  <button
-                    style={{
-                      ...styles.buttonSecondary,
-                      borderColor: showZoneLabels ? "#111" : "#d0d5dd",
-                      background: showZoneLabels ? "#111" : "#fff",
-                      color: showZoneLabels ? "#fff" : "#111",
-                    }}
-                    onClick={() => setShowZoneLabels((v) => !v)}
-                  >
-                    Labels {showZoneLabels ? "ON" : "OFF"}
-                  </button>
-                </div>
-              </div>
-
-              {/* Zone editor */}
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #eef2f7" }}>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                  <button
-                    style={{
-                      ...styles.buttonSecondary,
-                      borderColor: zoneEditorOn ? "#111" : "#d0d5dd",
-                      background: zoneEditorOn ? "#111" : "#fff",
-                      color: zoneEditorOn ? "#fff" : "#111",
-                    }}
-                    onClick={() => {
-                      setZoneEditorOn((v) => !v);
-                      setIsDrawingZone(false);
-                      setDragStart(null);
-                      setDragNow(null);
-                    }}
-                  >
-                    Zone editor {zoneEditorOn ? "ON" : "OFF"}
-                  </button>
-
-                  <div style={{ width: 260 }}>
-                    <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Zone name for next rectangle</div>
-                    <input
-                      style={styles.input}
-                      value={zoneDraftName}
-                      onChange={(e) => setZoneDraftName(e.target.value)}
-                      placeholder="e.g., Lab / Galley / EVA prep"
-                      disabled={!zoneEditorOn}
-                    />
-                  </div>
-
-                  <span style={{ fontSize: 12, opacity: 0.75 }}>When ON: drag on the plan to create zone rectangles.</span>
-                </div>
-
-                {zones.length > 0 && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 8 }}>Zones</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {zones
-                        .slice()
-                        .sort((a, b) => b.createdAt - a.createdAt)
-                        .map((z, idx) => (
-                          <div
-                            key={z.id}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              border: "1px solid #e5e7eb",
-                              borderRadius: 10,
-                              padding: "8px 10px",
-                              fontSize: 12,
-                              gap: 10,
-                            }}
-                          >
-                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                              <span
-                                style={{
-                                  width: 12,
-                                  height: 12,
-                                  borderRadius: 4,
-                                  background: zoneColorByIndex(idx),
-                                  border: "1px solid rgba(0,0,0,0.25)",
-                                }}
-                              />
-                              <div>
-                                <b>{z.name}</b>{" "}
-                                <span style={{ opacity: 0.7 }}>
-                                  ({z.x1.toFixed(3)},{z.y1.toFixed(3)})–({z.x2.toFixed(3)},{z.y2.toFixed(3)})
-                                </span>
-                              </div>
-                            </div>
-
-                            <button style={styles.buttonSecondary} onClick={() => deleteZone(z.id)}>
-                              Delete
-                            </button>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Legend */}
-            <div
-              style={{
-                marginTop: 12,
-                border: "1px solid #e5e7eb",
-                borderRadius: 14,
-                padding: 12,
-                background: "#fff",
-                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-              }}
-            >
-              <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 8 }}>Legend</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-                {ACTIVITY.map((a) => (
-                  <span
-                    key={a.key}
-                    style={{
-                      display: "inline-flex",
-                      gap: 8,
-                      alignItems: "center",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 999,
-                      padding: "6px 10px",
-                      fontSize: 12,
-                      fontWeight: 900,
-                    }}
-                    title={`${a.label} (${legendCounts.byActivity.get(a.key) || 0})`}
-                  >
-                    <span style={{ width: 10, height: 10, borderRadius: 999, background: a.color }} />
-                    {a.label} ({legendCounts.byActivity.get(a.key) || 0})
-                  </span>
-                ))}
-              </div>
-              <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 14, fontSize: 12 }}>
-                <span>
-                  <b>Dot ring</b>: green = cloud ok, red = cloud fail, white = pending
-                </span>
-                <span>
-                  <b>Heatmap</b>: grid-based density from filtered markers (strength & grid adjustable)
-                </span>
-                <span>
-                  <b>Zones</b>: colored rectangles (fill + outline toggles)
-                </span>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* PLAN CARD (shared) */}
-        <div
-          style={{
-            marginTop: 14,
-            border: "1px solid #e5e7eb",
-            borderRadius: 14,
-            overflow: "hidden",
-            background: "#fff",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-          }}
-        >
-          <div style={{ padding: 10, borderBottom: "1px solid #eef2f7", fontSize: 13 }}>
-            <b>Plan</b> · Mode: <b>{tab === "collect" ? "Collect" : "Review"}</b>{" "}
-            {tab === "collect" ? (
+          <div style={{ display:"flex", gap:8, marginBottom:9, alignItems:"center", flexWrap:"wrap" }}>
+            {!drawingZone && !awaitingName && (
+              <Btn onClick={() => { setDrawingZone(true); setDraftPoints([]); }} variant="primary" small disabled={!floorplanUrl}>
+                ✏ Draw Zone
+              </Btn>
+            )}
+            {drawingZone && (
               <>
-                · Click to record. Selected activity: <b>{selectedActivityMeta.label}</b>
+                <div style={{ fontSize:11, color:"#D97706", fontFamily:"'DM Mono',monospace", background:"#FFFBEB", border:"1.5px solid #FCD34D", borderRadius:5, padding:"3px 9px" }}>
+                  {draftPoints.length === 0 ? "Click to place first point" : draftPoints.length < 3 ? `${draftPoints.length} point${draftPoints.length>1?"s":""} — keep clicking` : "Click near ⬤ first point to close polygon"}
+                </div>
+                <Btn onClick={cancelDraft} variant="ghost" small>Cancel</Btn>
               </>
-            ) : (
-              <>
-                · Showing filtered markers {playbackEnabled ? "(with playback)" : ""}{" "}
-                {zoneEditorOn ? "· Zone editor ON (drag to create rectangles)" : ""}
-              </>
+            )}
+            {zones.length > 0 && !drawingZone && !awaitingName && (
+              <span style={{ fontSize:11, color:"#059669", fontFamily:"'DM Mono',monospace" }}>✓ {zones.length} zone{zones.length>1?"s":""} defined</span>
             )}
           </div>
 
-          <div
-            ref={containerRef}
-            onClick={(e) => {
-              if (tab === "collect") handleCollectClick(e);
-            }}
-            onMouseDown={tab === "review" && zoneEditorOn ? onPlanMouseDown : undefined}
-            onMouseMove={tab === "review" && zoneEditorOn ? onPlanMouseMove : undefined}
-            onMouseUp={tab === "review" && zoneEditorOn ? onPlanMouseUp : undefined}
-            style={{
-              position: "relative",
-              height: "72vh",
-              minHeight: 560,
-              background: "#fafafa",
-              cursor:
-                tab === "review" && zoneEditorOn
-                  ? "crosshair"
-                  : tab === "collect" && isRunning
-                  ? "crosshair"
-                  : "default",
-              userSelect: "none",
-            }}
-          >
-            {/* PLAN IMAGE */}
-            <img
-              src="/plan.png"
-              alt="Floorplan"
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                objectFit: "contain",
-                pointerEvents: "none",
-                zIndex: 1,
-              }}
+          <div style={{ border:"2px solid " + (drawingZone ? "#F59E0B" : "#E2E8F0"), borderRadius:12, overflow:"hidden" }}>
+            <FloorplanCanvas
+              imageUrl={floorplanUrl} zones={zones}
+              drawingMode={drawingZone} draftPoints={draftPoints} hoverPoint={hoverPoint}
+              onCanvasClick={handleCanvasClick}
+              onCanvasMouseMove={drawingZone ? setHoverPoint : undefined}
+              onCanvasMouseLeave={() => setHoverPoint(null)}
+              height={460}
             />
+          </div>
 
-            {/* HEATMAP (Review only) */}
-            {tab === "review" && heatmapOn ? (
-              <div style={{ position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none" }}>
-                {heatCells.map((c) => {
-                  const g = Math.max(5, Math.min(200, Math.floor(heatGrid)));
-                  const cellW = 100 / g;
-                  const cellH = 100 / g;
-
-                  // opacity from density; boosted slightly for visibility
-                  const alpha = clamp01(c.norm * heatStrength);
-
-                  return (
-                    <div
-                      key={`${c.gx}-${c.gy}`}
-                      title={`Heat cell count: ${c.count}`}
-                      style={{
-                        position: "absolute",
-                        left: `${c.gx * cellW}%`,
-                        top: `${c.gy * cellH}%`,
-                        width: `${cellW}%`,
-                        height: `${cellH}%`,
-                        background: `rgba(255, 0, 0, ${alpha})`,
-                        // For a slightly softer look:
-                        filter: "blur(0.2px)",
-                      }}
-                    />
-                  );
-                })}
+          {awaitingName && (
+            <div style={{ marginTop:10, background:"#FFFBEB", border:"1.5px solid #FCD34D", borderRadius:8, padding:"11px 14px", display:"flex", gap:8, alignItems:"center" }}>
+              <span style={{ fontSize:11, color:"#92400E", fontFamily:"'DM Mono',monospace", fontWeight:700, flexShrink:0 }}>Name this zone:</span>
+              <div style={{ flex:1 }}>
+                <input autoFocus value={pendingName} onChange={e => setPendingName(e.target.value)} onKeyDown={e => e.key==="Enter" && confirmZoneName()}
+                  placeholder="e.g. Nurses' Station, Corridor A…"
+                  style={{ width:"100%", boxSizing:"border-box", padding:"6px 10px", border:"1.5px solid #FCD34D", borderRadius:6, fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none" }} />
               </div>
-            ) : null}
-
-            {/* ZONE OVERLAYS (Review only) */}
-            {tab === "review" && (showZonesFill || showZonesOutline || showZoneLabels) ? (
-              <div style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none" }}>
-                {zones.map((z, idx) => {
-                  const fill = zoneColorByIndex(idx);
-                  const outline = "rgba(0,0,0,0.35)";
-                  return (
-                    <div
-                      key={z.id}
-                      title={`Zone: ${z.name}`}
-                      style={{
-                        position: "absolute",
-                        left: `${z.x1 * 100}%`,
-                        top: `${z.y1 * 100}%`,
-                        width: `${(z.x2 - z.x1) * 100}%`,
-                        height: `${(z.y2 - z.y1) * 100}%`,
-                        background: showZonesFill ? fill : "transparent",
-                        border: showZonesOutline ? `2px solid ${outline}` : "none",
-                      }}
-                    >
-                      {showZoneLabels ? (
-                        <div
-                          style={{
-                            position: "absolute",
-                            left: 6,
-                            top: 6,
-                            fontSize: 12,
-                            fontWeight: 900,
-                            padding: "4px 6px",
-                            borderRadius: 8,
-                            background: "rgba(255,255,255,0.85)",
-                            border: "1px solid rgba(0,0,0,0.15)",
-                          }}
-                        >
-                          {z.name}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            {/* Draft rectangle while drawing zones */}
-            {tab === "review" && zoneEditorOn && isDrawingZone && dragStart && dragNow ? (
-              (() => {
-                const r = rectNormalize(dragStart, dragNow);
-                return (
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: `${r.x1 * 100}%`,
-                      top: `${r.y1 * 100}%`,
-                      width: `${(r.x2 - r.x1) * 100}%`,
-                      height: `${(r.y2 - r.y1) * 100}%`,
-                      border: "2px dashed rgba(17,17,17,0.7)",
-                      background: "rgba(17,17,17,0.06)",
-                      zIndex: 4,
-                      pointerEvents: "none",
-                    }}
-                  />
-                );
-              })()
-            ) : null}
-
-            {/* MARKERS */}
-            <div style={{ position: "absolute", inset: 0, zIndex: 6, pointerEvents: "none" }}>
-              {markersToRender.map((m) => {
-                const color = ACTIVITY.find((a) => a.key === m.activity)?.color ?? "#111";
-                const ring =
-                  m.cloudStatus === "ok"
-                    ? "2px solid rgba(34,197,94,0.9)"
-                    : m.cloudStatus === "fail"
-                    ? "2px solid rgba(239,68,68,0.95)"
-                    : "2px solid rgba(255,255,255,0.95)";
-                const isImport = (m.source ?? "live") === "import";
-
-                return (
-                  <div
-                    key={m.id}
-                    title={[
-                      `Time: ${formatHMS(new Date(m.createdAt))}`,
-                      `Badge: ${m.badgeNumber}`,
-                      `Role: ${m.role}`,
-                      `Activity: ${m.activity}`,
-                      `Zone: ${m.zone}`,
-                      `Interval: ${m.intervalLabel}`,
-                      `Cloud: ${m.cloudStatus ?? "pending"}`,
-                      m.note ? `Note: ${m.note}` : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                    style={{
-                      position: "absolute",
-                      left: `${m.x * 100}%`,
-                      top: `${m.y * 100}%`,
-                      transform: "translate(-50%, -50%)",
-                      width: 14,
-                      height: 14,
-                      borderRadius: 999,
-                      background: color,
-                      border: ring,
-                      outline: isImport ? "2px dashed rgba(0,0,0,0.35)" : "none",
-                      boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
-                    }}
-                  />
-                );
-              })}
+              <Btn onClick={confirmZoneName} variant="warn" small>Save Zone</Btn>
+              <Btn onClick={cancelDraft} variant="ghost" small>Discard</Btn>
             </div>
+          )}
+        </div>
+
+        {/* Right: participant information + zones */}
+        <div>
+          <SectionHeader>Participant Information</SectionHeader>
+          <Field label="Participant Code"><Input value={session.participantCode} onChange={v=>updateSession("participantCode",v)} placeholder="P-01" /></Field>
+          <Field label="Participant Role"><Select value={session.participantRole} onChange={v=>updateSession("participantRole",v)} options={PARTICIPANT_ROLES} /></Field>
+          <Field label="Gender"><Select value={session.gender} onChange={v=>updateSession("gender",v)} options={GENDER_OPTIONS} /></Field>
+          <Field label="Seniority Level"><Select value={session.seniorityLevel} onChange={v=>updateSession("seniorityLevel",v)} options={SENIORITY_LEVELS} /></Field>
+          <Field label="Clinical Experience"><Select value={session.clinicalExperience} onChange={v=>updateSession("clinicalExperience",v)} options={EXPERIENCE_CATEGORIES} /></Field>
+
+          <SectionHeader style={{ marginTop:18 }}>Zones ({zones.length})</SectionHeader>
+          {zones.length === 0 && <p style={{ fontSize:12, color:"#94A3B8", fontFamily:"'DM Sans',sans-serif", marginTop:0 }}>No zones yet. Upload a floorplan and click "Draw Zone".</p>}
+          <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+            {zones.map((z, idx) => (
+              <div key={z.id} style={{ display:"flex", alignItems:"center", gap:8, background:"#F8FAFC", border:"1.5px solid #E2E8F0", borderRadius:6, padding:"5px 9px" }}>
+                <span style={{ width:9, height:9, borderRadius:3, background:zoneColor(z, idx), display:"inline-block", flexShrink:0 }} />
+                <span style={{ fontSize:12, fontFamily:"'DM Sans',sans-serif", color:"#1E293B", fontWeight:600, flex:1 }}>{z.name}</span>
+                <span style={{ fontSize:9, color:"#94A3B8", fontFamily:"'DM Mono',monospace" }}>{z.points?.length||0}pt</span>
+                <button onClick={() => setZones(zs => zs.filter(x => x.id !== z.id))} style={{ background:"none", border:"none", cursor:"pointer", color:"#CBD5E1", fontSize:14, lineHeight:1, padding:0 }}>×</button>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-          Heatmap uses the <b>filtered markers</b> (and playback cutoff, if enabled). Zones are rectangles drawn on the plan (saved locally).
+      </div>
+    </div>
+  );
+}
+
+// ─── Live timer hook ───────────────────────────────────────────────────────────
+
+function useElapsed(startIso) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!startIso) { setElapsed(0); return; }
+    function tick() {
+      setElapsed(Math.max(0, Math.round((Date.now() - new Date(startIso).getTime()) / 1000)));
+    }
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [startIso]);
+  return elapsed;
+}
+
+function formatElapsed(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+// ─── Shared: Quick Marker Panel ───────────────────────────────────────────────
+
+function QuickMarkerPanel({ markers, setMarkers, activeEventId, activeEv, zones }) {
+  const [stressGroup, setStressGroup] = React.useState("spatial");
+  const [recovGroup, setRecovGroup] = React.useState("spatial");
+
+  function stampMarker(markerType, category) {
+    const ref = activeEv || null;
+    const x = ref ? ref.x + (Math.random() * 16 - 8) : 500;
+    const y = ref ? ref.y + (Math.random() * 16 - 8) : 240;
+    const autoZone = ref?.zoneId || detectZone(zones, x, y);
+    setMarkers(ms => [{
+      id: "M-" + Date.now(), markerType, category, intensity: 3,
+      timestamp: nowIso(), zoneId: autoZone,
+      x: Math.round(x), y: Math.round(y),
+      linkedEventId: activeEventId || "",
+    }, ...ms]);
+  }
+
+  const tabStyle = (active, color) => ({
+    flex: 1, padding: "3px 0", border: "none", borderRadius: 4, cursor: "pointer",
+    fontSize: 9, fontWeight: 700, fontFamily: "'DM Mono',monospace",
+    textTransform: "uppercase", letterSpacing: "0.05em",
+    background: active ? color : "#F1F5F9",
+    color: active ? "white" : "#94A3B8",
+    transition: "all 0.12s",
+  });
+
+  const stressItems = STRESS_CATEGORIES.filter(c => c.group === stressGroup);
+  const recovItems  = RECOVERY_CATEGORIES.filter(c => c.group === recovGroup);
+
+  return (
+    <div style={{ background: "white", border: "1.5px solid #E2E8F0", borderRadius: 10, padding: "10px 11px" }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748B", fontFamily: "'DM Mono',monospace", marginBottom: 8 }}>
+        Quick Markers {activeEv && <span style={{ color: "#059669", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>↳ linked</span>}
+      </div>
+
+      {/* ── STRESS ── */}
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#DC2626", fontFamily: "'DM Mono',monospace", marginBottom: 4, letterSpacing: "0.05em" }}>⚡ Stress</div>
+      <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
+        {STRESS_SUBGROUPS.map(g => (
+          <button key={g.id} onClick={() => setStressGroup(g.id)} style={tabStyle(stressGroup === g.id, "#DC2626")}>{g.label}</button>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3, marginBottom: 10 }}>
+        {stressItems.map(cat => (
+          <button key={cat.id} onClick={() => stampMarker("stress", cat.id)}
+            style={{ padding: "5px 2px", border: "1.5px solid #FEE2E2", borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: "#FFF5F5", color: "#DC2626", lineHeight: 1.2, textAlign: "center" }}
+            onMouseOver={e => { e.currentTarget.style.background = "#DC2626"; e.currentTarget.style.color = "white"; }}
+            onMouseOut={e => { e.currentTarget.style.background = "#FFF5F5"; e.currentTarget.style.color = "#DC2626"; }}>
+            {cat.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── RECOVERY ── */}
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#059669", fontFamily: "'DM Mono',monospace", marginBottom: 4, letterSpacing: "0.05em" }}>🌿 Recovery</div>
+      <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
+        {RECOVERY_SUBGROUPS.map(g => (
+          <button key={g.id} onClick={() => setRecovGroup(g.id)} style={tabStyle(recovGroup === g.id, "#059669")}>{g.label}</button>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3, marginBottom: 10 }}>
+        {recovItems.map(cat => (
+          <button key={cat.id} onClick={() => stampMarker("recovery", cat.id)}
+            style={{ padding: "5px 2px", border: "1.5px solid #D1FAE5", borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: "#F0FDF4", color: "#059669", lineHeight: 1.2, textAlign: "center" }}
+            onMouseOver={e => { e.currentTarget.style.background = "#059669"; e.currentTarget.style.color = "white"; }}
+            onMouseOut={e => { e.currentTarget.style.background = "#F0FDF4"; e.currentTarget.style.color = "#059669"; }}>
+            {cat.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── CONTEXTUAL FLAGS ── */}
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#B45309", fontFamily: "'DM Mono',monospace", marginBottom: 4, letterSpacing: "0.05em" }}>⚑ Context</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
+        {CONTEXTUAL_FLAGS.map(cat => (
+          <button key={cat.id} onClick={() => stampMarker("contextual", cat.id)}
+            style={{ padding: "5px 2px", border: "1.5px solid #FEF3C7", borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: "#FFFBEB", color: "#B45309", lineHeight: 1.2, textAlign: "center" }}
+            onMouseOver={e => { e.currentTarget.style.background = "#D97706"; e.currentTarget.style.color = "white"; }}
+            onMouseOut={e => { e.currentTarget.style.background = "#FFFBEB"; e.currentTarget.style.color = "#B45309"; }}>
+            {cat.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Recent log ── */}
+      {markers.length > 0 && (
+        <div style={{ marginTop: 8, borderTop: "1px solid #F1F5F9", paddingTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
+          {markers.slice(0, 4).map(m => (
+            <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, fontFamily: "'DM Mono',monospace" }}>
+              <span style={{ color: m.markerType === "stress" ? "#DC2626" : m.markerType === "contextual" ? "#B45309" : "#059669" }}>
+                {m.markerType === "stress" ? "⚡" : m.markerType === "contextual" ? "⚑" : "🌿"}
+              </span>
+              <span style={{ color: "#475569", flex: 1 }}>{[...STRESS_CATEGORIES, ...RECOVERY_CATEGORIES, ...CONTEXTUAL_FLAGS].find(c => c.id === m.category)?.label || m.category}</span>
+              <span style={{ color: "#CBD5E1" }}>{formatClock(m.timestamp)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Shared: Timer block ───────────────────────────────────────────────────────
+
+function TimerBlock({ activeEv, elapsed, zones, onEnd }) {
+  const activeColor = activeEv ? getEventColor(activeEv.eventType) : "#94A3B8";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, background: activeEv ? activeColor + "0C" : "#F8FAFC", border: "1.5px solid " + (activeEv ? activeColor + "50" : "#E2E8F0"), borderRadius: 8, padding: "7px 10px", transition: "all 0.25s" }}>
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: activeEv ? activeColor : "#E2E8F0", flexShrink: 0 }} />
+      <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "'DM Mono',monospace", color: activeEv ? "#1E293B" : "#CBD5E1", letterSpacing: "-0.02em", minWidth: 52 }}>
+        {formatElapsed(elapsed)}
+      </span>
+      {activeEv && (
+        <span style={{ fontSize: 10, fontWeight: 700, color: activeColor, fontFamily: "'DM Mono',monospace", textTransform: "uppercase", letterSpacing: "0.06em", flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+          {EVENT_TYPES.find(e => e.id === activeEv.eventType)?.label}
+          {activeEv.zoneId ? <span style={{ fontWeight: 400, color: "#94A3B8" }}> · {findZoneName(zones, activeEv.zoneId)}</span> : null}
+        </span>
+      )}
+      {!activeEv && <span style={{ fontSize: 11, color: "#CBD5E1", fontFamily: "'DM Sans',sans-serif", flex: 1 }}>No active event</span>}
+      {activeEv && onEnd && (
+        <button onClick={onEnd} style={{ flexShrink: 0, padding: "4px 10px", border: "none", borderRadius: 5, background: "#DC2626", color: "white", fontWeight: 700, fontSize: 11, fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>■ End</button>
+      )}
+    </div>
+  );
+}
+
+// ─── Shared: Session counts ────────────────────────────────────────────────────
+
+function SessionCounts({ events, markers }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+      {[
+        { label: "Events",    value: events.length,                                             color: "#2563EB" },
+        { label: "Stress",    value: markers.filter(m => m.markerType === "stress").length,     color: "#DC2626" },
+        { label: "Recovery",  value: markers.filter(m => m.markerType === "recovery").length,   color: "#059669" },
+        { label: "Context",   value: markers.filter(m => m.markerType === "contextual").length, color: "#B45309" },
+      ].map(s => (
+        <div key={s.label} style={{ background: "white", border: "1.5px solid #E2E8F0", borderRadius: 8, padding: "8px 6px", textAlign: "center" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'DM Mono',monospace", color: s.color, lineHeight: 1 }}>{s.value}</div>
+          <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.07em", color: "#94A3B8", marginTop: 3, fontFamily: "'DM Sans',sans-serif" }}>{s.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Shared: Event log ─────────────────────────────────────────────────────────
+
+function EventLog({ events, setEvents, activeEventId, setActiveEventId }) {
+  if (!events.length) return null;
+
+  function deleteEvent(id) {
+    setEvents(evs => evs.filter(e => e.id !== id));
+    if (activeEventId === id && setActiveEventId) setActiveEventId(null);
+  }
+
+  return (
+    <div style={{ background: "white", borderTop: "1.5px solid #E2E8F0", overflow: "hidden" }}>
+      <div style={{ padding: "4px 12px", borderBottom: "1px solid #F1F5F9", fontSize: 9, fontWeight: 700, fontFamily: "'DM Mono',monospace", color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em" }}>Log</div>
+      {events.slice(0, 6).map((ev, i) => (
+        <div key={ev.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 12px", borderBottom: i < Math.min(5, events.length - 1) ? "1px solid #F8FAFC" : "none" }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: getEventColor(ev.eventType), flexShrink: 0, opacity: ev.endTime ? 0.3 : 1 }} />
+          <span style={{ fontSize: 11, fontFamily: "'DM Sans',sans-serif", color: "#475569", flex: 1 }}>{EVENT_TYPES.find(e => e.id === ev.eventType)?.label || "—"}</span>
+          <span style={{ fontSize: 10, fontFamily: "'DM Mono',monospace", color: "#94A3B8" }}>{formatClock(ev.startTime)}</span>
+          {ev.endTime
+            ? <span style={{ fontSize: 9, fontFamily: "'DM Mono',monospace", color: "#CBD5E1" }}>{formatDuration(secondsBetween(ev.startTime, ev.endTime))}</span>
+            : <span style={{ fontSize: 9, fontFamily: "'DM Mono',monospace", color: "#2563EB", fontWeight: 700 }}>LIVE</span>}
+          <button onClick={() => deleteEvent(ev.id)}
+            title="Delete this event"
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#CBD5E1", fontSize: 14, lineHeight: 1, padding: "0 2px", flexShrink: 0 }}
+            onMouseOver={e => e.currentTarget.style.color = "#DC2626"}
+            onMouseOut={e => e.currentTarget.style.color = "#CBD5E1"}>
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── ZONE OBSERVATION Live Tab ─────────────────────────────────────────────────
+
+function ZoneLiveTab({ session, zones, events, setEvents, markers, setMarkers, floorplanUrl }) {
+  const [activeEventId, setActiveEventId] = useState(null);
+  const [awaitingPlace, setAwaitingPlace] = useState(false);
+  const [eventType, setEventType] = useState("");
+  const [peoplePresent, setPeoplePresent] = useState("");
+  const [bodilyAction, setBodilyAction] = useState("");
+  const [patientAcuity, setPatientAcuity] = useState("");
+  const [interruptionFlag, setInterruptionFlag] = useState(false);
+
+  const activeEv = events.find(e => e.id === activeEventId && !e.endTime);
+  const elapsed = useElapsed(activeEv?.startTime || null);
+
+  function handleCanvasClick(pos) {
+    if (!awaitingPlace) return;
+    const autoZone = detectZone(zones, pos.x, pos.y);
+    const ev = { id: "E-" + Date.now(), eventType, peoplePresent, bodilyAction, patientAcuity, interruptionFlag, zoneId: autoZone, startTime: nowIso(), x: pos.x, y: pos.y };
+    setEvents(e => [ev, ...e]);
+    setActiveEventId(ev.id);
+    setAwaitingPlace(false);
+    setInterruptionFlag(false);
+  }
+
+  function endEvent() {
+    setEvents(evs => evs.map(ev => ev.id === activeEventId ? { ...ev, endTime: nowIso() } : ev));
+    setActiveEventId(null);
+  }
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 290px", gap: 14, alignItems: "start" }}>
+      {/* Map */}
+      <div>
+        <div style={{ border: "2px solid " + (awaitingPlace ? "#F59E0B" : "#E2E8F0"), borderRadius: 12, overflow: "hidden", position: "relative", transition: "border-color 0.2s" }}>
+          {awaitingPlace && (
+            <div style={{ position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 2, background: "rgba(245,158,11,0.96)", borderRadius: 6, padding: "5px 16px", fontSize: 11, fontFamily: "'DM Mono',monospace", color: "white", fontWeight: 700, whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.18)" }}>
+              Click on the map to place & start event
+            </div>
+          )}
+          <FloorplanCanvas imageUrl={floorplanUrl} zones={zones} events={events} markers={markers} onCanvasClick={handleCanvasClick} height={530} />
+        </div>
+        <EventLog events={events} setEvents={setEvents} activeEventId={activeEventId} setActiveEventId={setActiveEventId} />
+      </div>
+
+      {/* Controls */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <TimerBlock activeEv={activeEv} elapsed={elapsed} zones={zones} onEnd={endEvent} />
+
+        {!activeEv && (
+          <div style={{ background: "white", border: "1.5px solid #E2E8F0", borderRadius: 10, padding: "12px 13px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748B", fontFamily: "'DM Mono',monospace", marginBottom: 9 }}>Start New Event</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 10 }}>
+              {EVENT_TYPES.map(et => (
+                <button key={et.id} onClick={() => setEventType(et.id)}
+                  style={{ padding: "5px 3px", border: "1.5px solid " + (eventType === et.id ? et.color : "#E2E8F0"), borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: eventType === et.id ? et.color + "15" : "white", color: eventType === et.id ? et.color : "#94A3B8", textAlign: "center" }}>
+                  {et.label}
+                </button>
+              ))}
+            </div>
+            <Field label="People present"><Select value={peoplePresent} onChange={setPeoplePresent} options={PEOPLE_PRESENT} /></Field>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748B", fontFamily: "'DM Mono',monospace", marginBottom: 5 }}>Bodily action</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, marginBottom: 10 }}>
+              {BODILY_ACTION_TYPES.map(a => (
+                <button key={a.id} onClick={() => setBodilyAction(a.id)}
+                  style={{ padding: "5px 3px", border: "1.5px solid " + (bodilyAction === a.id ? "#7C3AED" : "#E2E8F0"), borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: bodilyAction === a.id ? "#EDE9FE" : "white", color: bodilyAction === a.id ? "#7C3AED" : "#94A3B8", textAlign: "center" }}>
+                  {a.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748B", fontFamily: "'DM Mono',monospace", marginBottom: 5 }}>Patient acuity</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 10 }}>
+              {PATIENT_ACUITY.map(a => (
+                <button key={a.id} onClick={() => setPatientAcuity(a.id)}
+                  style={{ padding: "5px 3px", border: "1.5px solid " + (patientAcuity === a.id ? "#0891B2" : "#E2E8F0"), borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: patientAcuity === a.id ? "#E0F2FE" : "white", color: patientAcuity === a.id ? "#0891B2" : "#94A3B8", textAlign: "center" }}>
+                  {a.label}
+                </button>
+              ))}
+            </div>
+            <label style={{ display: "flex", gap: 7, alignItems: "center", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", color: "#475569", marginBottom: 10 }}>
+              <input type="checkbox" checked={interruptionFlag} onChange={e => setInterruptionFlag(e.target.checked)} />
+              Flag as interruption
+            </label>
+            <button onClick={() => setAwaitingPlace(true)} disabled={!!awaitingPlace}
+              style={{ width: "100%", padding: "10px", border: "none", borderRadius: 8, background: awaitingPlace ? "#93C5FD" : "#2563EB", color: "white", fontWeight: 800, fontSize: 13, fontFamily: "'DM Sans',sans-serif", cursor: awaitingPlace ? "default" : "pointer" }}>
+              {awaitingPlace ? "→ Click the map…" : "▶ Place on Map & Start"}
+            </button>
+            {awaitingPlace && (
+              <button onClick={() => setAwaitingPlace(false)} style={{ width: "100%", marginTop: 5, padding: "6px", border: "1px solid #E2E8F0", borderRadius: 6, background: "white", color: "#94A3B8", fontSize: 11, fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>Cancel</button>
+            )}
+          </div>
+        )}
+
+        <QuickMarkerPanel markers={markers} setMarkers={setMarkers} activeEventId={activeEventId} activeEv={activeEv} zones={zones} />
+        <SessionCounts events={events} markers={markers} />
+      </div>
+    </div>
+  );
+}
+
+// ─── SHADOWING Live Tab ────────────────────────────────────────────────────────
+
+// Extended canvas that also draws a path between shadowing waypoints
+function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick, height = 530 }) {
+  const canvasRef = useRef(null);
+  const imgRef = useRef(null);
+  const [imgLoaded, setImgLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!imageUrl) { setImgLoaded(false); return; }
+    const img = new Image();
+    img.onload = () => { imgRef.current = img; setImgLoaded(true); };
+    img.src = imageUrl;
+  }, [imageUrl]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Background
+    if (imageUrl && imgRef.current && imgLoaded) {
+      ctx.drawImage(imgRef.current, 0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.fillStyle = "#F1F5F9"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let x = 0; x < canvas.width; x += 40) { ctx.beginPath(); ctx.strokeStyle = "#E2E8F0"; ctx.lineWidth = 1; ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+      for (let y = 0; y < canvas.height; y += 40) { ctx.beginPath(); ctx.strokeStyle = "#E2E8F0"; ctx.lineWidth = 1; ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+      ctx.fillStyle = "#CBD5E1"; ctx.font = "13px DM Mono,monospace"; ctx.textAlign = "center";
+      ctx.fillText("Upload a floorplan in Setup", canvas.width / 2, canvas.height / 2);
+      ctx.textAlign = "left";
+    }
+
+    // Zones
+    zones.forEach((zone, idx) => {
+      if (!zone.points || zone.points.length < 2) return;
+      const color = zoneColor(zone, idx);
+      ctx.beginPath(); ctx.moveTo(zone.points[0].x, zone.points[0].y);
+      zone.points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.closePath(); ctx.fillStyle = color + "28"; ctx.fill();
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([]); ctx.stroke();
+      const c = polygonCentroid(zone.points);
+      ctx.font = "bold 11px DM Mono,monospace"; ctx.textAlign = "center";
+      const tw = ctx.measureText(zone.name).width;
+      ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.fillRect(c.x - tw / 2 - 4, c.y - 11, tw + 8, 16);
+      ctx.fillStyle = color; ctx.fillText(zone.name, c.x, c.y); ctx.textAlign = "left";
+    });
+
+    // Path between waypoints
+    if (waypoints.length >= 2) {
+      // Shadow
+      ctx.beginPath(); ctx.moveTo(waypoints[0].x, waypoints[0].y);
+      waypoints.slice(1).forEach(w => ctx.lineTo(w.x, w.y));
+      ctx.strokeStyle = "rgba(0,0,0,0.12)"; ctx.lineWidth = 6; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.setLineDash([]); ctx.stroke();
+      // Main path — gradient-like via segments
+      for (let i = 0; i < waypoints.length - 1; i++) {
+        const t = i / (waypoints.length - 1);
+        const r = Math.round(37 + t * (124 - 37));
+        const g = Math.round(99 + t * (58 - 99));
+        const b = Math.round(235 + t * (189 - 235));
+        ctx.beginPath(); ctx.moveTo(waypoints[i].x, waypoints[i].y); ctx.lineTo(waypoints[i + 1].x, waypoints[i + 1].y);
+        ctx.strokeStyle = `rgb(${r},${g},${b})`; ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.stroke();
+      }
+      // Direction arrows every ~3 waypoints
+      for (let i = 1; i < waypoints.length; i += Math.max(1, Math.floor(waypoints.length / 6))) {
+        const prev = waypoints[i - 1], curr = waypoints[i];
+        const angle = Math.atan2(curr.y - prev.y, curr.x - prev.x);
+        const mx = (prev.x + curr.x) / 2, my = (prev.y + curr.y) / 2;
+        ctx.save(); ctx.translate(mx, my); ctx.rotate(angle);
+        ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.closePath();
+        ctx.fillStyle = "#2563EB"; ctx.fill(); ctx.restore();
+      }
+    }
+
+    // Waypoint dots
+    waypoints.forEach((w, i) => {
+      const isFirst = i === 0, isLast = i === waypoints.length - 1;
+      const color = isFirst ? "#059669" : isLast ? "#DC2626" : getEventColor(w.eventType || "other");
+      ctx.beginPath(); ctx.arc(w.x, w.y, isFirst || isLast ? 8 : 6, 0, Math.PI * 2);
+      ctx.fillStyle = color; ctx.fill();
+      ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
+      // Sequence number
+      ctx.fillStyle = "white"; ctx.font = `bold ${isFirst || isLast ? 10 : 9}px DM Mono,monospace`; ctx.textAlign = "center";
+      ctx.fillText(i + 1, w.x, w.y + 3.5); ctx.textAlign = "left";
+    });
+
+    // Markers (triangles)
+    markers.forEach(m => {
+      const color = m.markerType === "stress" ? "#DC2626" : "#059669";
+      ctx.beginPath(); ctx.moveTo(m.x, m.y - 7); ctx.lineTo(m.x + 6, m.y + 5); ctx.lineTo(m.x - 6, m.y + 5); ctx.closePath();
+      ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle = "white"; ctx.lineWidth = 1.5; ctx.stroke();
+    });
+  }, [imageUrl, imgLoaded, zones, waypoints, markers]);
+
+  function getPos(e) {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const sx = canvasRef.current.width / rect.width, sy = canvasRef.current.height / rect.height;
+    return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy) };
+  }
+
+  return (
+    <canvas ref={canvasRef} width={1000} height={600}
+      onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
+      style={{ width: "100%", height, borderRadius: 10, display: "block", cursor: "crosshair" }}
+    />
+  );
+}
+
+function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarkers, floorplanUrl }) {
+  const [activeEventId, setActiveEventId] = useState(null);
+  const [eventType, setEventType] = useState("");
+  const [bodilyAction, setBodilyAction] = useState("");
+  const [patientAcuity, setPatientAcuity] = useState("");
+  const [history, setHistory] = useState([]); // [{type:"event"|"marker", id, label, icon}]
+
+  const activeEv = events.find(e => e.id === activeEventId && !e.endTime);
+  const elapsed = useElapsed(activeEv?.startTime || null);
+  const lastAction = history[0] || null;
+
+  const waypoints = [...events].reverse();
+
+  function pushHistory(type, id, label, icon, detail1 = null, detail2 = null) {
+    setHistory(h => [{ type, id, label, icon, detail1, detail2 }, ...h.slice(0, 19)]);
+  }
+
+  function undoLast() {
+    if (!lastAction) return;
+    if (lastAction.type === "event") {
+      setEvents(evs => evs.filter(e => e.id !== lastAction.id));
+      if (activeEventId === lastAction.id) setActiveEventId(null);
+    } else {
+      setMarkers(ms => ms.filter(m => m.id !== lastAction.id));
+    }
+    setHistory(h => h.slice(1));
+  }
+
+  function handleCanvasClick(pos) {
+    const autoZone = detectZone(zones, pos.x, pos.y);
+    if (activeEventId) {
+      setEvents(evs => evs.map(ev => ev.id === activeEventId ? { ...ev, endTime: nowIso() } : ev));
+    }
+    const ev = { id: "E-" + Date.now(), eventType, bodilyAction, patientAcuity, zoneId: autoZone, startTime: nowIso(), x: pos.x, y: pos.y };
+    setEvents(e => [ev, ...e]);
+    setActiveEventId(ev.id);
+    const actLabel = EVENT_TYPES.find(e => e.id === eventType)?.label || "Event";
+    const postLabel = BODILY_ACTION_TYPES.find(a => a.id === bodilyAction)?.label || null;
+    const acuLabel = PATIENT_ACUITY.find(a => a.id === patientAcuity)?.label || null;
+    pushHistory("event", ev.id, actLabel, "●", postLabel, acuLabel);
+  }
+
+  function logActivityHere() {
+    if (!activeEv) return;
+    setEvents(evs => evs.map(ev => ev.id === activeEventId ? { ...ev, endTime: nowIso() } : ev));
+    const ev = { id: "E-" + Date.now(), eventType, bodilyAction, patientAcuity, zoneId: activeEv.zoneId, startTime: nowIso(), x: activeEv.x, y: activeEv.y };
+    setEvents(e => [ev, ...e]);
+    setActiveEventId(ev.id);
+    const actLabel = EVENT_TYPES.find(e => e.id === eventType)?.label || "Event";
+    const postLabel = BODILY_ACTION_TYPES.find(a => a.id === bodilyAction)?.label || null;
+    const acuLabel = PATIENT_ACUITY.find(a => a.id === patientAcuity)?.label || null;
+    pushHistory("event", ev.id, actLabel, "●", postLabel, acuLabel);
+  }
+
+  function stopTracking() {
+    if (activeEventId) {
+      setEvents(evs => evs.map(ev => ev.id === activeEventId ? { ...ev, endTime: nowIso() } : ev));
+      setActiveEventId(null);
+    }
+  }
+
+  function stampMarker(markerType, category) {
+    const ref = activeEv || null;
+    const x = ref ? ref.x + (Math.random() * 16 - 8) : 500;
+    const y = ref ? ref.y + (Math.random() * 16 - 8) : 240;
+    const autoZone = ref?.zoneId || detectZone(zones, x, y);
+    const marker = {
+      id: "M-" + Date.now(), markerType, category, intensity: 3,
+      timestamp: nowIso(), zoneId: autoZone,
+      x: Math.round(x), y: Math.round(y),
+      linkedEventId: activeEventId || "",
+    };
+    setMarkers(ms => [marker, ...ms]);
+    const allCats = [...STRESS_CATEGORIES, ...RECOVERY_CATEGORIES, ...CONTEXTUAL_FLAGS];
+    const catLabel = allCats.find(c => c.id === category)?.label || category;
+    const icon = markerType === "stress" ? "⚡" : markerType === "contextual" ? "⚑" : "🌿";
+    pushHistory("marker", marker.id, catLabel, icon);
+  }
+
+  // ── shared pill button styles ──────────────────────────────────────────────
+  const pill = (active, color, bg) => ({
+    padding: "6px 4px", border: "1.5px solid " + (active ? color : "#E2E8F0"),
+    borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 700,
+    fontFamily: "'DM Sans',sans-serif", lineHeight: 1.2, textAlign: "center",
+    background: active ? bg : "white", color: active ? color : "#94A3B8",
+    transition: "all 0.1s",
+  });
+  const subLabel = (color) => ({
+    fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+    color, fontFamily: "'DM Mono',monospace", marginBottom: 3, marginTop: 5,
+  });
+  const markerBtn = (type) => {
+    const cfg = {
+      stress:     { bg: "#FFF5F5", border: "#FECACA", color: "#DC2626" },
+      recovery:   { bg: "#F0FDF4", border: "#BBF7D0", color: "#059669" },
+      contextual: { bg: "#FFFBEB", border: "#FDE68A", color: "#B45309" },
+    }[type];
+    return {
+      padding: "5px 3px", border: "1.5px solid " + cfg.border, borderRadius: 5,
+      cursor: "pointer", fontSize: 10, fontWeight: 600,
+      fontFamily: "'DM Sans',sans-serif", background: cfg.bg, color: cfg.color,
+      lineHeight: 1.2, textAlign: "center",
+    };
+  };
+
+  const counts = [
+    { label: "Events",   value: events.length,                                             color: "#2563EB" },
+    { label: "Stress",   value: markers.filter(m => m.markerType === "stress").length,     color: "#DC2626" },
+    { label: "Recovery", value: markers.filter(m => m.markerType === "recovery").length,   color: "#059669" },
+    { label: "Context",  value: markers.filter(m => m.markerType === "contextual").length, color: "#B45309" },
+  ];
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", height: "calc(100vh - 56px)", overflow: "hidden" }}>
+
+      {/* ── LEFT COLUMN: controls strip + floorplan ── */}
+      <div style={{ display: "flex", flexDirection: "column", borderRight: "1.5px solid #E2E8F0", overflow: "hidden" }}>
+
+        {/* Controls strip — only as wide as this column */}
+        <div style={{ background: "white", borderBottom: "1.5px solid #E2E8F0", padding: "8px 12px", flexShrink: 0 }}>
+
+          {/* Activity row: 6 cols × 2 rows */}
+          <div style={subLabel("#64748B")}>Activity</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4, marginBottom: 7 }}>
+            {EVENT_TYPES.map(et => (
+              <button key={et.id} onClick={() => setEventType(et.id)}
+                style={pill(eventType === et.id, et.color, et.color + "18")}>
+                {et.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Posture + Acuity + action buttons — full width grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "5fr 4fr auto", gap: 8, alignItems: "end" }}>
+            <div>
+              <div style={subLabel("#64748B")}>Posture</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4, height: 36 }}>
+                {BODILY_ACTION_TYPES.map(a => (
+                  <button key={a.id} onClick={() => setBodilyAction(a.id)}
+                    style={{ ...pill(bodilyAction === a.id, "#7C3AED", "#EDE9FE"), padding: 0, height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={subLabel("#64748B")}>Acuity</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, height: 36 }}>
+                {PATIENT_ACUITY.map(a => (
+                  <button key={a.id} onClick={() => setPatientAcuity(a.id)}
+                    style={{ ...pill(patientAcuity === a.id, "#0891B2", "#E0F2FE"), padding: 0, height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {events.length > 0 ? (
+              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                <button onClick={logActivityHere}
+                  style={{ padding: "0 12px", height: 36, border: "1.5px solid #7C3AED", borderRadius: 7, background: "#EDE9FE", color: "#7C3AED", fontWeight: 800, fontSize: 11, fontFamily: "'DM Sans',sans-serif", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  ◎ Log Here
+                </button>
+                <button onClick={stopTracking}
+                  style={{ padding: "0 12px", height: 36, border: "none", borderRadius: 7, background: "#DC2626", color: "white", fontWeight: 800, fontSize: 11, fontFamily: "'DM Sans',sans-serif", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  ■ End
+                </button>
+              </div>
+            ) : <div />}
+          </div>
+        </div>
+
+        {/* Floorplan — fills remaining height */}
+        <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+          {events.length === 0 && (
+            <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 2, background: "rgba(255,255,255,0.92)", borderRadius: 6, padding: "5px 14px", fontSize: 11, fontFamily: "'DM Mono',monospace", color: "#94A3B8", whiteSpace: "nowrap", border: "1px solid #E2E8F0" }}>
+              Select an activity above, then tap the map
+            </div>
+          )}
+          <ShadowingCanvas imageUrl={floorplanUrl} zones={zones} waypoints={waypoints} markers={markers} onCanvasClick={handleCanvasClick} height={600} />
+          {waypoints.length > 1 && (
+            <div style={{ position: "absolute", bottom: 8, left: 8, display: "flex", gap: 4 }}>
+              <div style={{ background: "rgba(255,255,255,0.9)", border: "1px solid #E2E8F0", borderRadius: 5, padding: "3px 8px", fontSize: 10, fontFamily: "'DM Mono',monospace", color: "#475569" }}>
+                <span style={{ color: "#7C3AED", fontWeight: 700 }}>{waypoints.length}</span> pts
+              </div>
+              <div style={{ background: "rgba(255,255,255,0.9)", border: "1px solid #E2E8F0", borderRadius: 5, padding: "3px 8px", fontSize: 10, fontFamily: "'DM Mono',monospace", color: "#475569" }}>
+                <span style={{ color: "#7C3AED", fontWeight: 700 }}>{[...new Set(waypoints.map(w => w.zoneId).filter(Boolean))].length}</span> zones
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Event log strip */}
+        <EventLog events={events} setEvents={setEvents} activeEventId={activeEventId} setActiveEventId={setActiveEventId} />
+      </div>
+
+      {/* ── RIGHT COLUMN: markers panel — full screen height ── */}
+      <div style={{ background: "white", padding: "10px 11px", display: "flex", flexDirection: "column", gap: 0, overflowY: "auto", height: "calc(100vh - 56px)" }}>
+
+        {/* STRESS */}
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#DC2626", fontFamily: "'DM Mono',monospace", letterSpacing: "0.05em", marginBottom: 3 }}>
+          ⚡ Stress {activeEv && <span style={{ color: "#94A3B8", fontWeight: 400, fontSize: 9 }}>↳ linked</span>}
+        </div>
+        {STRESS_SUBGROUPS.map(sg => (
+          <div key={sg.id}>
+            <div style={subLabel("#DC262670")}>{sg.label}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3, marginBottom: 3 }}>
+              {STRESS_CATEGORIES.filter(c => c.group === sg.id).map(cat => (
+                <button key={cat.id} onClick={() => stampMarker("stress", cat.id)} style={markerBtn("stress")}
+                  onMouseOver={e => { e.currentTarget.style.background = "#DC2626"; e.currentTarget.style.color = "white"; }}
+                  onMouseOut={e => { e.currentTarget.style.background = "#FFF5F5"; e.currentTarget.style.color = "#DC2626"; }}>
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <div style={{ borderTop: "1px solid #F1F5F9", margin: "6px 0" }} />
+
+        {/* RECOVERY */}
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#059669", fontFamily: "'DM Mono',monospace", letterSpacing: "0.05em", marginBottom: 3 }}>
+          🌿 Recovery
+        </div>
+        {RECOVERY_SUBGROUPS.map(sg => (
+          <div key={sg.id}>
+            <div style={subLabel("#05996970")}>{sg.label}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3, marginBottom: 3 }}>
+              {RECOVERY_CATEGORIES.filter(c => c.group === sg.id).map(cat => (
+                <button key={cat.id} onClick={() => stampMarker("recovery", cat.id)} style={markerBtn("recovery")}
+                  onMouseOver={e => { e.currentTarget.style.background = "#059669"; e.currentTarget.style.color = "white"; }}
+                  onMouseOut={e => { e.currentTarget.style.background = "#F0FDF4"; e.currentTarget.style.color = "#059669"; }}>
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <div style={{ borderTop: "1px solid #F1F5F9", margin: "6px 0" }} />
+
+        {/* CONTEXTUAL FLAGS */}
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", fontFamily: "'DM Mono',monospace", letterSpacing: "0.05em", marginBottom: 3 }}>
+          ⚑ Context
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, marginBottom: 6 }}>
+          {CONTEXTUAL_FLAGS.map(cat => (
+            <button key={cat.id} onClick={() => stampMarker("contextual", cat.id)} style={markerBtn("contextual")}
+              onMouseOver={e => { e.currentTarget.style.background = "#D97706"; e.currentTarget.style.color = "white"; }}
+              onMouseOut={e => { e.currentTarget.style.background = "#FFFBEB"; e.currentTarget.style.color = "#B45309"; }}>
+              {cat.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ borderTop: "1px solid #F1F5F9", margin: "6px 0" }} />
+
+        {/* LAST ACTION + UNDO */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, minHeight: 32 }}>
+          {lastAction ? (
+            <>
+              <span style={{ fontSize: 11, flexShrink: 0 }}>{lastAction.icon}</span>
+              <div style={{ flex: 1, overflow: "hidden" }}>
+                <div style={{ fontSize: 10, fontFamily: "'DM Mono',monospace", color: "#1E293B", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {lastAction.label}
+                </div>
+                {(lastAction.detail1 || lastAction.detail2) && (
+                  <div style={{ fontSize: 9, fontFamily: "'DM Mono',monospace", color: "#94A3B8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {[lastAction.detail1, lastAction.detail2].filter(Boolean).join(" · ")}
+                  </div>
+                )}
+              </div>
+              <button onClick={undoLast}
+                style={{ flexShrink: 0, padding: "3px 9px", border: "1.5px solid #E2E8F0", borderRadius: 5, background: "white", color: "#64748B", fontSize: 10, fontWeight: 700, fontFamily: "'DM Mono',monospace", cursor: "pointer", whiteSpace: "nowrap" }}
+                onMouseOver={e => { e.currentTarget.style.borderColor = "#DC2626"; e.currentTarget.style.color = "#DC2626"; }}
+                onMouseOut={e => { e.currentTarget.style.borderColor = "#E2E8F0"; e.currentTarget.style.color = "#64748B"; }}>
+                ↩ Undo
+              </button>
+            </>
+          ) : (
+            <span style={{ fontSize: 10, fontFamily: "'DM Mono',monospace", color: "#CBD5E1" }}>No actions yet</span>
+          )}
+        </div>
+
+        {/* TIMER */}
+        <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 7, padding: "7px 10px", display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: activeEv ? getEventColor(activeEv.eventType) : "#E2E8F0", flexShrink: 0 }} />
+          <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "'DM Mono',monospace", color: activeEv ? "#1E293B" : "#CBD5E1", letterSpacing: "-0.02em", minWidth: 48 }}>
+            {formatElapsed(elapsed)}
+          </span>
+          {activeEv && (
+            <span style={{ fontSize: 9, fontWeight: 700, color: getEventColor(activeEv.eventType), fontFamily: "'DM Mono',monospace", textTransform: "uppercase", letterSpacing: "0.05em", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+              {EVENT_TYPES.find(e => e.id === activeEv.eventType)?.label}
+              {activeEv.zoneId ? <span style={{ fontWeight: 400, color: "#94A3B8" }}> · {findZoneName(zones, activeEv.zoneId)}</span> : null}
+            </span>
+          )}
+        </div>
+
+        {/* COUNTS */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 4, marginBottom: 6 }}>
+          {counts.map(s => (
+            <div key={s.label} style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "5px 4px", textAlign: "center" }}>
+              <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'DM Mono',monospace", color: s.color, lineHeight: 1 }}>{s.value}</div>
+              <div style={{ fontSize: 8, textTransform: "uppercase", letterSpacing: "0.06em", color: "#94A3B8", marginTop: 2, fontFamily: "'DM Sans',sans-serif" }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* RECENT MARKER LOG */}
+        {markers.length > 0 && (
+          <div style={{ marginTop: "auto", borderTop: "1px solid #F1F5F9", paddingTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
+            {markers.slice(0, 6).map(m => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, fontFamily: "'DM Mono',monospace" }}>
+                <span style={{ color: m.markerType === "stress" ? "#DC2626" : m.markerType === "contextual" ? "#B45309" : "#059669" }}>
+                  {m.markerType === "stress" ? "⚡" : m.markerType === "contextual" ? "⚑" : "🌿"}
+                </span>
+                <span style={{ color: "#475569", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {[...STRESS_CATEGORIES, ...RECOVERY_CATEGORIES, ...CONTEXTUAL_FLAGS].find(c => c.id === m.category)?.label || m.category}
+                </span>
+                <span style={{ color: "#CBD5E1", flexShrink: 0 }}>{formatClock(m.timestamp)}</span>
+                <button onClick={() => setMarkers(ms => ms.filter(x => x.id !== m.id))}
+                  title="Delete this marker"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#CBD5E1", fontSize: 13, lineHeight: 1, padding: "0 1px", flexShrink: 0 }}
+                  onMouseOver={e => e.currentTarget.style.color = "#DC2626"}
+                  onMouseOut={e => e.currentTarget.style.color = "#CBD5E1"}>
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── LiveTab router ────────────────────────────────────────────────────────────
+
+function LiveTab({ session, zones, events, setEvents, markers, setMarkers, floorplanUrl }) {
+  const mode = session.observationMode;
+
+  if (!mode) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 320, gap: 12, color: "#94A3B8", fontFamily: "'DM Sans',sans-serif" }}>
+        <div style={{ fontSize: 32 }}>⬡</div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: "#64748B" }}>No observation mode selected</div>
+        <div style={{ fontSize: 13 }}>Go to Setup & Zones and choose Zone Observation or Person Tracking.</div>
+      </div>
+    );
+  }
+
+  if (mode === "zone") return <ZoneLiveTab session={session} zones={zones} events={events} setEvents={setEvents} markers={markers} setMarkers={setMarkers} floorplanUrl={floorplanUrl} />;
+  if (mode === "person") return <ShadowingLiveTab session={session} zones={zones} events={events} setEvents={setEvents} markers={markers} setMarkers={setMarkers} floorplanUrl={floorplanUrl} />;
+  return null;
+}
+
+// ─── Review Tab ────────────────────────────────────────────────────────────────
+
+function ReviewTab({ session, zones, events, markers }) {
+  function exportAll() {
+    downloadText(`events_${session.sessionId}.csv`, toCsv(buildEventRows(session, zones, events)), "text/csv");
+    setTimeout(() => downloadText(`markers_${session.sessionId}.csv`, toCsv(buildMarkerRows(session, zones, markers)), "text/csv"), 300);
+  }
+  const totalDur = events.reduce((s,ev) => s + (ev.endTime ? secondsBetween(ev.startTime,ev.endTime) : 0), 0);
+  const byType = EVENT_TYPES.map(et => ({...et, count:events.filter(ev=>ev.eventType===et.id).length})).filter(et=>et.count>0).sort((a,b)=>b.count-a.count);
+  return (
+    <div>
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
+        <StatCard label="Total Events" value={events.length} color="#2563EB" />
+        <StatCard label="Completed" value={events.filter(e=>e.endTime).length} color="#059669" />
+        <StatCard label="Stress" value={markers.filter(m=>m.markerType==="stress").length} color="#DC2626" />
+        <StatCard label="Recovery" value={markers.filter(m=>m.markerType==="recovery").length} color="#059669" />
+        <StatCard label="Context" value={markers.filter(m=>m.markerType==="contextual").length} color="#B45309" />
+        <StatCard label="Observed" value={formatDuration(totalDur)} color="#7C3AED" />
+        <StatCard label="Zones" value={zones.length} color="#0891B2" />
+      </div>
+
+      {byType.length > 0 && <>
+        <SectionHeader>Event Breakdown</SectionHeader>
+        <div style={{ display:"flex", flexDirection:"column", gap:5, marginBottom:16 }}>
+          {byType.map(et => {
+            const pct = Math.round((et.count/events.length)*100);
+            return (
+              <div key={et.id} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <div style={{ width:115, fontSize:11, fontFamily:"'DM Sans',sans-serif", color:"#475569", flexShrink:0 }}>{et.label}</div>
+                <div style={{ flex:1, background:"#F1F5F9", borderRadius:99, height:8 }}>
+                  <div style={{ width:`${pct}%`, background:et.color, height:"100%", borderRadius:99 }} />
+                </div>
+                <div style={{ width:34, textAlign:"right", fontSize:10, fontFamily:"'DM Mono',monospace", color:"#64748B" }}>{pct}%</div>
+                <Badge color={et.color}>{et.count}</Badge>
+              </div>
+            );
+          })}
+        </div>
+      </>}
+
+      <SectionHeader>Recent Events</SectionHeader>
+      <div style={{ overflowX:"auto", marginBottom:16 }}>
+        <table style={{ borderCollapse:"collapse", width:"100%", fontSize:11, fontFamily:"'DM Mono',monospace" }}>
+          <thead><tr style={{ borderBottom:"2px solid #E2E8F0" }}>
+            {["ID","Type","Start","End","Duration","Zone","People"].map(h => <th key={h} style={{ textAlign:"left", padding:"5px 8px", color:"#64748B", fontWeight:700, textTransform:"uppercase", fontSize:9, letterSpacing:"0.07em" }}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {events.slice(0,14).map((ev,i) => (
+              <tr key={ev.id} style={{ borderBottom:"1px solid #F1F5F9", background:i%2===0?"#FAFAFA":"white" }}>
+                <td style={{ padding:"4px 8px", color:"#94A3B8" }}>{ev.id.slice(-5)}</td>
+                <td style={{ padding:"4px 8px" }}><Badge color={getEventColor(ev.eventType)}>{EVENT_TYPES.find(e=>e.id===ev.eventType)?.label||ev.eventType}</Badge></td>
+                <td style={{ padding:"4px 8px", color:"#475569" }}>{formatClock(ev.startTime)}</td>
+                <td style={{ padding:"4px 8px", color:"#475569" }}>{ev.endTime?formatClock(ev.endTime):<span style={{color:"#2563EB"}}>ongoing</span>}</td>
+                <td style={{ padding:"4px 8px", color:"#475569" }}>{ev.endTime?formatDuration(secondsBetween(ev.startTime,ev.endTime)):"—"}</td>
+                <td style={{ padding:"4px 8px", color:"#475569" }}>{findZoneName(zones,ev.zoneId)||"—"}</td>
+                <td style={{ padding:"4px 8px", color:"#475569" }}>{ev.peoplePresent||"—"}</td>
+              </tr>
+            ))}
+            {events.length===0 && <tr><td colSpan={7} style={{ padding:"18px", textAlign:"center", color:"#CBD5E1" }}>No events recorded.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <SectionHeader>Export</SectionHeader>
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        <Btn onClick={exportAll} variant="success">⬇ Export All CSVs</Btn>
+        <Btn onClick={() => downloadText(`events_${session.sessionId}.csv`, toCsv(buildEventRows(session,zones,events)), "text/csv")} variant="ghost">Events only</Btn>
+        <Btn onClick={() => downloadText(`markers_${session.sessionId}.csv`, toCsv(buildMarkerRows(session,zones,markers)), "text/csv")} variant="ghost">Markers only</Btn>
+      </div>
+
+      <SectionHeader>CSV Schema</SectionHeader>
+      {[
+        { file:"events.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · seniority_level · clinical_experience · shift_type · departmental_status · protocol_checked · event_id · event_type · bodily_action · patient_acuity · start_time · end_time · duration_seconds · zone_id · zone_name · x_coord · y_coord · people_present · interruption_flag · interruption_type · note" },
+        { file:"markers.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · seniority_level · clinical_experience · shift_type · departmental_status · marker_id · marker_type (stress / recovery / contextual) · category · intensity_1_5 · timestamp · zone_id · zone_name · x_coord · y_coord · linked_event_id" },
+      ].map(s => (
+        <div key={s.file} style={{ background:"#F8FAFC", border:"1.5px solid #E2E8F0", borderRadius:7, padding:"8px 11px", marginBottom:6 }}>
+          <div style={{ fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#2563EB", marginBottom:3 }}>{s.file}</div>
+          <div style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:"#64748B", lineHeight:1.8 }}>{s.cols}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Root ──────────────────────────────────────────────────────────────────────
+
+export default function Page() {
+  const [tab, setTab] = useState("setup");
+
+  // ── Study-level state: persists across all participants in a field day ──
+  const [floorplanUrl, setFloorplanUrl] = useState(null);
+  const [zones, setZones] = useState([]);
+  const [study, setStudy] = useState({ hospital:"Addenbrooke's", department:"A&E" });
+
+  // ── Session-level state: reset between participants ──
+  const freshSession = () => ({
+    sessionId: "S-" + Date.now(),
+    date: new Date().toISOString().slice(0, 10),
+    hospital: study.hospital,
+    department: study.department,
+    observationMode: "person",
+  });
+  const [session, setSession] = useState(freshSession());
+  const [events, setEvents] = useState([]);
+  const [markers, setMarkers] = useState([]);
+
+  function newParticipant() {
+    if (!window.confirm("Start a new participant session? The floorplan and zones will be kept. Event and marker data for the current participant should be exported first.")) return;
+    setSession({ ...freshSession(), hospital: study.hospital, department: study.department });
+    setEvents([]);
+    setMarkers([]);
+    setTab("setup");
+  }
+
+  // Keep study fields in sync with session so CSV exports carry them
+  function updateStudy(key, val) {
+    setStudy(s => ({ ...s, [key]: val }));
+    setSession(s => ({ ...s, [key]: val }));
+  }
+
+  const tabs = [
+    { id:"setup", label:"Setup & Zones" },
+    { id:"live", label:"Live" },
+    { id:"review", label:"Review & Export" },
+  ];
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#F0F4F8" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500;700&display=swap'); *{box-sizing:border-box;} body{margin:0;}`}</style>
+
+      <div style={{ background:"white", borderBottom:"1.5px solid #E2E8F0" }}>
+        <div style={{ maxWidth:1100, margin:"0 auto", padding:"0 22px", display:"flex", alignItems:"flex-end", justifyContent:"space-between" }}>
+          <div style={{ paddingTop:14, paddingBottom:10 }}>
+            <div style={{ fontSize:16, fontWeight:800, color:"#1E293B", letterSpacing:"-0.02em", fontFamily:"'DM Sans',sans-serif" }}>
+              <span style={{ color:"#2563EB" }}>Recovery in Motion</span> · Stream B Shadowing
+            </div>
+            <div style={{ fontSize:10, color:"#94A3B8", fontFamily:"'DM Mono',monospace", marginTop:2 }}>
+              {session.hospital||"No hospital"} · {session.date} · {session.participantCode||"No participant"}
+              {floorplanUrl && <span style={{ color:"#059669", marginLeft:8 }}>● Floorplan loaded</span>}
+              {zones.length > 0 && <span style={{ color:"#7C3AED", marginLeft:8 }}>● {zones.length} zone{zones.length!==1?"s":""}</span>}
+            </div>
+          </div>
+          <div style={{ display:"flex", alignItems:"flex-end", gap:0 }}>
+            {(events.length > 0 || markers.length > 0) && (
+              <button onClick={newParticipant}
+                style={{ background:"none", border:"1.5px solid #E2E8F0", borderRadius:6, padding:"6px 12px", marginBottom:10, marginRight:12, cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#059669", whiteSpace:"nowrap" }}>
+                + New Participant
+              </button>
+            )}
+            <div style={{ display:"flex" }}>
+              {tabs.map(t => (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  style={{ background:"none", border:"none", borderBottom:tab===t.id?"2.5px solid #2563EB":"2.5px solid transparent", padding:"11px 15px", cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace", textTransform:"uppercase", letterSpacing:"0.07em", color:tab===t.id?"#2563EB":"#94A3B8", transition:"all 0.15s", whiteSpace:"nowrap" }}>
+                  {t.label}
+                  {t.id==="live" && events.length>0 && <span style={{ marginLeft:4, background:"#2563EB", color:"white", borderRadius:99, fontSize:8, padding:"1px 5px", fontWeight:700 }}>{events.length}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* ===== BOTTOM TAB BAR ===== */}
-      <div
-        style={{
-          position: "fixed",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          borderTop: "1px solid #e5e7eb",
-          background: "rgba(255,255,255,0.98)",
-          backdropFilter: "blur(8px)",
-          padding: "10px 14px",
-          display: "flex",
-          justifyContent: "center",
-          gap: 10,
-          zIndex: 50,
-        }}
-      >
-        <button
-          onClick={() => setTab("collect")}
-          style={{
-            ...styles.buttonSecondary,
-            borderColor: tab === "collect" ? "#111" : "#d0d5dd",
-            background: tab === "collect" ? "#111" : "#fff",
-            color: tab === "collect" ? "#fff" : "#111",
-            minWidth: 140,
-          }}
-        >
-          Collect
-        </button>
-        <button
-          onClick={() => setTab("review")}
-          style={{
-            ...styles.buttonSecondary,
-            borderColor: tab === "review" ? "#111" : "#d0d5dd",
-            background: tab === "review" ? "#111" : "#fff",
-            color: tab === "review" ? "#fff" : "#111",
-            minWidth: 140,
-          }}
-        >
-          Review
-        </button>
+      <div style={{ maxWidth:1100, margin:"0 auto", padding:"18px 22px" }}>
+        {tab==="setup" && <SetupTab session={session} setSession={setSession} study={study} updateStudy={updateStudy} zones={zones} setZones={setZones} floorplanUrl={floorplanUrl} setFloorplanUrl={setFloorplanUrl} />}
+        {tab==="review" && <ReviewTab session={session} zones={zones} events={events} markers={markers} />}
       </div>
+      {tab==="live" && <LiveTab session={session} zones={zones} events={events} setEvents={setEvents} markers={markers} setMarkers={setMarkers} floorplanUrl={floorplanUrl} />}
     </div>
   );
 }
