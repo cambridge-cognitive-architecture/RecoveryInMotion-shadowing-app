@@ -151,7 +151,7 @@ const ZONE_COLORS = [
 ];
 
 // Pick the first colour not already used by an existing zone
-function pickZoneColor(existingZones) {
+function pickZoneColor(existingZones: any[]) {
   const used = new Set((existingZones || []).map(z => z.color));
   return ZONE_COLORS.find(c => !used.has(c)) || ZONE_COLORS[existingZones.length % ZONE_COLORS.length];
 }
