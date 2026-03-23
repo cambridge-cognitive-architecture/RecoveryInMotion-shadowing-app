@@ -157,7 +157,7 @@ function pickZoneColor(existingZones: any[]) {
 }
 
 // Render helper — uses stored color, falls back to index for legacy zones
-function zoneColor(zone, idx) { return zone?.color || ZONE_COLORS[idx % ZONE_COLORS.length]; }
+function zoneColor(zone: any, idx: number) { return zone?.color || ZONE_COLORS[idx % ZONE_COLORS.length]; }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
