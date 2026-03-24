@@ -1,7 +1,5 @@
 "use client";
-
 import React, { useState, useRef, useEffect } from "react";
-
 
 // ─── Data constants ────────────────────────────────────────────────────────────
 
@@ -10,53 +8,39 @@ import React, { useState, useRef, useEffect } from "react";
 // Edit the lists below to customise categories for your study.
 
 const EVENT_TYPES = [
-  // Task Activity categories — mapped to Stream B Table 4
-  { id: "direct_patient_care", label: "Direct Patient Care", color: "#2563EB" },
-  { id: "documentation", label: "Documentation", color: "#7C3AED" },
-  { id: "medication_task", label: "Medication Task", color: "#0D9488" },
-  { id: "staff_communication", label: "Staff Communication", color: "#0891B2" },
-  { id: "handover", label: "Handover / Briefing", color: "#9333EA" },
-  { id: "walking_navigation", label: "Walking / Navigation", color: "#059669" },
-  { id: "equipment_resource_search", label: "Equipment / Resource Search", color: "#D97706" },
-  { id: "waiting_idle", label: "Waiting / Idle", color: "#6B7280" },
-  { id: "pager_phone_screen", label: "Pager / Phone / Screen", color: "#DC2626" },
-  { id: "administrative_task", label: "Administrative Task", color: "#B45309" },
-  { id: "break", label: "Break / Rest", color: "#16A34A" },
-  { id: "other", label: "Other", color: "#94A3B8" },
+  // Task Activity categories — mapped to Stream B Table 4, sorted alphabetically
+  { id: "administrative_task",        label: "Admin",        color: "#B45309" },
+  { id: "break",                      label: "Break / Rest",               color: "#16A34A" },
+  { id: "direct_patient_care",        label: "Direct Patient Care",        color: "#2563EB" },
+  { id: "documentation",              label: "Documentation",              color: "#7C3AED" },
+  { id: "equipment_resource_search",  label: "Equipment / Resource Search",color: "#D97706" },
+  { id: "handover",                   label: "Handover / Briefing",        color: "#9333EA" },
+  { id: "medication_task",            label: "Medication Task",            color: "#0D9488" },
+  { id: "pager_phone_screen",         label: "Pager / Phone / Screen",     color: "#DC2626" },
+  { id: "staff_communication",        label: "Staff Communication",        color: "#0891B2" },
+  { id: "waiting",                    label: "Waiting",                    color: "#6B7280" },
 ];
 
 // Bodily action / posture states (logged as sub-type on each event)
 const BODILY_ACTION_TYPES = [
-  { id: "standing", label: "Standing" },
-  { id: "sitting", label: "Sitting" },
-  { id: "walking", label: "Walking" },
   { id: "crouching", label: "Crouching / Reaching" },
-  { id: "running", label: "Running" },
+  { id: "running",   label: "Running"               },
+  { id: "sitting",   label: "Sitting"               },
+  { id: "standing",  label: "Standing"              },
+  { id: "walking",   label: "Walking"               },
 ];
 
 // Stress markers — grouped for panel navigation (H1–H4 cascade)
 // Each item has a group property for subgroup rendering
 const STRESS_CATEGORIES = [
-  // Spatial / perceptual — environment making cognition harder
-  { id: "spatial_disorientation",        label: "Disorientation",          group: "spatial" },
-  { id: "low_spatial_predictability",    label: "Can't Read Space",        group: "spatial" },
-  { id: "poor_sightlines",               label: "Poor Sightlines",         group: "spatial" },
-  { id: "reactive_visual_search",        label: "Hunting / Scanning",      group: "spatial" },
-  { id: "equipment_not_where_expected",  label: "Equipment Misplaced",     group: "spatial" },
-  { id: "spatial_conflict",              label: "Space Blocked / Contested", group: "spatial" },
-  // Workflow friction
-  { id: "interruption",                  label: "Interruption",            group: "workflow" },
-  { id: "time_pressure",                 label: "Time Pressure",           group: "workflow" },
-  { id: "multitasking",                  label: "Multitasking",            group: "workflow" },
-  { id: "role_conflict",                 label: "Role Conflict",           group: "workflow" },
-  { id: "unexpected_patient_surge",      label: "Patient Surge",           group: "workflow" },
-  // Environmental conditions
-  { id: "noise_crowding",                label: "Noise / Crowding",        group: "environment" },
-  { id: "privacy_violation",             label: "Privacy Violation",       group: "environment" },
-  { id: "emotional_demand",              label: "Emotional Demand",        group: "environment" },
-  { id: "crash_call_nearby",             label: "Crash Call Nearby",       group: "environment" },
-  { id: "equipment_broken",              label: "Equipment Broken",        group: "environment" },
-  { id: "staff_shortage",                label: "Staff Shortage",          group: "environment" },
+  { id: "spatial_conflict",             label: "Space Blocked"    },
+  { id: "spatial_disorientation",       label: "Disorientation"   },
+  { id: "equipment_not_where_expected", label: "Equip. Misplaced" },
+  { id: "interruption",                 label: "Interruption"     },
+  { id: "multitasking",                 label: "Multitasking"     },
+  { id: "noise_crowding",               label: "Noise / Crowding" },
+  { id: "role_conflict",                label: "Role Conflict"    },
+  { id: "time_pressure",                label: "Time Pressure"    },
 ];
 
 const STRESS_SUBGROUPS = [
@@ -67,18 +51,11 @@ const STRESS_SUBGROUPS = [
 
 // Recovery / micro-restoration markers — grouped (H4 cascade)
 const RECOVERY_CATEGORIES = [
-  // Spatial restoration — environment doing the cognitive work
-  { id: "high_spatial_predictability",  label: "Space Easy to Read",      group: "spatial" },
-  { id: "familiar_space",               label: "Familiar Space",          group: "spatial" },
-  { id: "good_sightlines",              label: "Good Sightlines",         group: "spatial" },
-  // Environmental restoration
-  { id: "quiet_moment",                 label: "Quiet Moment",            group: "environment" },
-  { id: "reduced_noise",                label: "Reduced Noise",           group: "environment" },
-  { id: "daylight_view",                label: "Daylight",                group: "environment" },
-  // Social / cognitive
-  { id: "social_support",               label: "Social Support",          group: "social" },
-  { id: "brief_humour",                 label: "Brief Humour",            group: "social" },
-  { id: "momentary_privacy",            label: "Momentary Privacy",       group: "social" },
+  { id: "brief_humour",    label: "Brief Humour"   },
+  { id: "daylight_view",   label: "Daylight"       },
+  { id: "good_sightlines", label: "Good Sightlines"},
+  { id: "quiet_moment",    label: "Quiet Moment"   },
+  { id: "social_support",  label: "Social Support" },
 ];
 
 const RECOVERY_SUBGROUPS = [
@@ -89,12 +66,12 @@ const RECOVERY_SUBGROUPS = [
 
 // Contextual flags — factual environmental conditions, logged separately from stress/recovery
 const CONTEXTUAL_FLAGS = [
-  { id: "crash_call_nearby",    label: "Crash call" },
-  { id: "equipment_broken",     label: "Equip. broken" },
-  { id: "patient_complaint",    label: "Patient complaint" },
-  { id: "handover_underway",    label: "Handover underway" },
-  { id: "staff_shortage",       label: "Staff shortage" },
-  { id: "maintenance_works",    label: "Maintenance / works" },
+  { id: "crash_call_nearby",  label: "Crash call"        },
+  { id: "equipment_broken",   label: "Equip. broken"     },
+  { id: "handover_underway",  label: "Handover underway" },
+  { id: "maintenance_works",  label: "Maintenance / works"},
+  { id: "patient_complaint",  label: "Patient complaint" },
+  { id: "staff_shortage",     label: "Staff shortage"    },
 ];
 
 // Room density / people present
@@ -112,14 +89,16 @@ const PATIENT_ACUITY = [
   { id: "low", label: "Low" },
   { id: "moderate", label: "Moderate" },
   { id: "high", label: "High" },
-  { id: "not_applicable", label: "N/A" },
 ];
 
 // Participant roles — Addenbrooke's A&E staff
 const PARTICIPANT_ROLES = ["nurse", "doctor"];
 
 // Gender
-const GENDER_OPTIONS = ["woman", "man", "non-binary", "prefer not to say"];
+const GENDER_OPTIONS = ["female", "male", "non-binary", "prefer not to say"];
+
+// First language
+const FIRST_LANGUAGE_OPTIONS = ["English", "Other", "Prefer not to say"];
 
 // Seniority levels (Stream B Table 4)
 const SENIORITY_LEVELS = ["student", "band_2_4", "band_5_6", "band_7_8", "junior_doctor", "registrar", "consultant"];
@@ -151,13 +130,13 @@ const ZONE_COLORS = [
 ];
 
 // Pick the first colour not already used by an existing zone
-function pickZoneColor(existingZones: any[]) {
+function pickZoneColor(existingZones) {
   const used = new Set((existingZones || []).map(z => z.color));
   return ZONE_COLORS.find(c => !used.has(c)) || ZONE_COLORS[existingZones.length % ZONE_COLORS.length];
 }
 
 // Render helper — uses stored color, falls back to index for legacy zones
-function zoneColor(zone: any, idx: number) { return zone?.color || ZONE_COLORS[idx % ZONE_COLORS.length]; }
+function zoneColor(zone, idx) { return zone?.color || ZONE_COLORS[idx % ZONE_COLORS.length]; }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -197,7 +176,7 @@ function buildEventRows(session, zones, events) {
     session_id: session?.sessionId||"", date: session?.date||"", hospital: session?.hospital||"",
     department: session?.department||"", unit: session?.unit||"", observer_id: session?.observerId||"",
     participant_role: session?.participantRole||"", participant_code: session?.participantCode||"",
-    gender: session?.gender||"",
+    gender: session?.gender||"", first_language: session?.firstLanguage||"",
     seniority_level: session?.seniorityLevel||"", clinical_experience: session?.clinicalExperience||"",
     shift_type: session?.shiftType||"", departmental_status: session?.departmentalStatus||"",
     protocol_checked: !!(session?.protocolChecked),
@@ -217,7 +196,7 @@ function buildMarkerRows(session, zones, markers) {
     session_id: session?.sessionId||"", date: session?.date||"", hospital: session?.hospital||"",
     department: session?.department||"", unit: session?.unit||"", observer_id: session?.observerId||"",
     participant_role: session?.participantRole||"", participant_code: session?.participantCode||"",
-    gender: session?.gender||"",
+    gender: session?.gender||"", first_language: session?.firstLanguage||"",
     seniority_level: session?.seniorityLevel||"", clinical_experience: session?.clinicalExperience||"",
     shift_type: session?.shiftType||"", departmental_status: session?.departmentalStatus||"",
     marker_id: m?.id||"", marker_type: m?.markerType||"",
@@ -448,6 +427,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
   const [awaitingName, setAwaitingName] = useState(false);
   const [completedPoly, setCompletedPoly] = useState(null);
   const fileRef = useRef(null);
+  const zoneFileRef = useRef(null);
 
   function updateSession(key, val) { setSession(s => ({...s, [key]: val})); }
 
@@ -456,6 +436,41 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
     const reader = new FileReader();
     reader.onload = e => setFloorplanUrl(e.target.result);
     reader.readAsDataURL(file);
+  }
+
+  function exportZoneConfig() {
+    const config = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      hospital: study.hospital,
+      department: study.department,
+      floorplanUrl: floorplanUrl || null,
+      zones,
+    };
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const dept = (study.department || "zones").replace(/\s+/g, "_");
+    a.href = url; a.download = `rim_zones_${dept}.json`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+
+  function handleZoneImport(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const config = JSON.parse(e.target.result);
+        if (config.zones) setZones(config.zones);
+        if (config.floorplanUrl) setFloorplanUrl(config.floorplanUrl);
+        if (config.hospital) updateStudy("hospital", config.hospital);
+        if (config.department) updateStudy("department", config.department);
+      } catch {
+        alert("Could not read zone file — make sure it's a valid Recovery in Motion zone export.");
+      }
+    };
+    reader.readAsText(file);
   }
 
   function handleCanvasClick(pos) {
@@ -490,6 +505,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
       {/* Hidden file input — kept at top level so ref is always mounted */}
       <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => handleImageFile(e.target.files[0])} />
+      <input ref={zoneFileRef} type="file" accept=".json" style={{ display:"none" }} onChange={e => handleZoneImport(e.target.files[0])} />
 
       {/* ── TOP STRIP: session details horizontally ── */}
       <div style={{ background:"white", border:"1.5px solid #E2E8F0", borderRadius:10, padding:"13px 16px" }}>
@@ -536,10 +552,16 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
         <div>
           <SectionHeader>Floorplan & Zone Drawing</SectionHeader>
 
-          <div style={{ display:"flex", gap:8, marginBottom:10, alignItems:"center" }}>
+          <div style={{ display:"flex", gap:8, marginBottom:10, alignItems:"center", flexWrap:"wrap" }}>
             <Btn onClick={() => fileRef.current.click()} variant="outline">⬆ Upload Floorplan</Btn>
             {floorplanUrl && <Btn onClick={() => setFloorplanUrl(null)} variant="ghost" small>Remove</Btn>}
             <span style={{ fontSize:10, color:"#94A3B8", fontFamily:"'DM Mono',monospace" }}>PNG · JPG · GIF</span>
+            <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
+              <Btn onClick={() => zoneFileRef.current.click()} variant="ghost" small>⬆ Load Zone Config</Btn>
+              {(zones.length > 0 || floorplanUrl) && (
+                <Btn onClick={exportZoneConfig} variant="ghost" small>⬇ Save Zone Config</Btn>
+              )}
+            </div>
           </div>
 
           <div style={{ display:"flex", gap:8, marginBottom:9, alignItems:"center", flexWrap:"wrap" }}>
@@ -594,6 +616,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
           <Field label="Gender"><Select value={session.gender} onChange={v=>updateSession("gender",v)} options={GENDER_OPTIONS} /></Field>
           <Field label="Seniority Level"><Select value={session.seniorityLevel} onChange={v=>updateSession("seniorityLevel",v)} options={SENIORITY_LEVELS} /></Field>
           <Field label="Clinical Experience"><Select value={session.clinicalExperience} onChange={v=>updateSession("clinicalExperience",v)} options={EXPERIENCE_CATEGORIES} /></Field>
+          <Field label="First Language"><Select value={session.firstLanguage} onChange={v=>updateSession("firstLanguage",v)} options={FIRST_LANGUAGE_OPTIONS} /></Field>
 
           <SectionHeader style={{ marginTop:18 }}>Zones ({zones.length})</SectionHeader>
           {zones.length === 0 && <p style={{ fontSize:12, color:"#94A3B8", fontFamily:"'DM Sans',sans-serif", marginTop:0 }}>No zones yet. Upload a floorplan and click "Draw Zone".</p>}
@@ -642,8 +665,6 @@ function formatElapsed(sec) {
 // ─── Shared: Quick Marker Panel ───────────────────────────────────────────────
 
 function QuickMarkerPanel({ markers, setMarkers, activeEventId, activeEv, zones }) {
-  const [stressGroup, setStressGroup] = React.useState("spatial");
-  const [recovGroup, setRecovGroup] = React.useState("spatial");
 
   function stampMarker(markerType, category) {
     const ref = activeEv || null;
@@ -658,17 +679,6 @@ function QuickMarkerPanel({ markers, setMarkers, activeEventId, activeEv, zones 
     }, ...ms]);
   }
 
-  const tabStyle = (active, color) => ({
-    flex: 1, padding: "3px 0", border: "none", borderRadius: 4, cursor: "pointer",
-    fontSize: 9, fontWeight: 700, fontFamily: "'DM Mono',monospace",
-    textTransform: "uppercase", letterSpacing: "0.05em",
-    background: active ? color : "#F1F5F9",
-    color: active ? "white" : "#94A3B8",
-    transition: "all 0.12s",
-  });
-
-  const stressItems = STRESS_CATEGORIES.filter(c => c.group === stressGroup);
-  const recovItems  = RECOVERY_CATEGORIES.filter(c => c.group === recovGroup);
 
   return (
     <div style={{ background: "white", border: "1.5px solid #E2E8F0", borderRadius: 10, padding: "10px 11px" }}>
@@ -678,13 +688,8 @@ function QuickMarkerPanel({ markers, setMarkers, activeEventId, activeEv, zones 
 
       {/* ── STRESS ── */}
       <div style={{ fontSize: 10, fontWeight: 700, color: "#DC2626", fontFamily: "'DM Mono',monospace", marginBottom: 4, letterSpacing: "0.05em" }}>⚡ Stress</div>
-      <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
-        {STRESS_SUBGROUPS.map(g => (
-          <button key={g.id} onClick={() => setStressGroup(g.id)} style={tabStyle(stressGroup === g.id, "#DC2626")}>{g.label}</button>
-        ))}
-      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3, marginBottom: 10 }}>
-        {stressItems.map(cat => (
+        {STRESS_CATEGORIES.map(cat => (
           <button key={cat.id} onClick={() => stampMarker("stress", cat.id)}
             style={{ padding: "5px 2px", border: "1.5px solid #FEE2E2", borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: "#FFF5F5", color: "#DC2626", lineHeight: 1.2, textAlign: "center" }}
             onMouseOver={e => { e.currentTarget.style.background = "#DC2626"; e.currentTarget.style.color = "white"; }}
@@ -696,13 +701,8 @@ function QuickMarkerPanel({ markers, setMarkers, activeEventId, activeEv, zones 
 
       {/* ── RECOVERY ── */}
       <div style={{ fontSize: 10, fontWeight: 700, color: "#059669", fontFamily: "'DM Mono',monospace", marginBottom: 4, letterSpacing: "0.05em" }}>🌿 Recovery</div>
-      <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
-        {RECOVERY_SUBGROUPS.map(g => (
-          <button key={g.id} onClick={() => setRecovGroup(g.id)} style={tabStyle(recovGroup === g.id, "#059669")}>{g.label}</button>
-        ))}
-      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3, marginBottom: 10 }}>
-        {recovItems.map(cat => (
+        {RECOVERY_CATEGORIES.map(cat => (
           <button key={cat.id} onClick={() => stampMarker("recovery", cat.id)}
             style={{ padding: "5px 2px", border: "1.5px solid #D1FAE5", borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: "#F0FDF4", color: "#059669", lineHeight: 1.2, textAlign: "center" }}
             onMouseOver={e => { e.currentTarget.style.background = "#059669"; e.currentTarget.style.color = "white"; }}
@@ -1023,7 +1023,7 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick, h
   return (
     <canvas ref={canvasRef} width={1000} height={600}
       onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
-      style={{ width: "100%", height, borderRadius: 10, display: "block", cursor: "crosshair" }}
+      style={{ width: "100%", height: "auto", display: "block", cursor: "crosshair" }}
     />
   );
 }
@@ -1140,225 +1140,244 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
     { label: "Context",  value: markers.filter(m => m.markerType === "contextual").length, color: "#B45309" },
   ];
 
+  // ── Sidebar section header helper ──────────────────────────────────────────
+  const sideHead = (label, color) => (
+    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase",
+      color, fontFamily: "'DM Mono',monospace", marginBottom: 4, marginTop: 8 }}>{label}</div>
+  );
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", height: "calc(100vh - 56px)", overflow: "hidden" }}>
+    // Landscape-optimised: map left (~65%), controls sidebar right (~35%)
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", alignItems: "start", minHeight: "calc(100vh - 56px)", overflow: "hidden" }}>
 
-      {/* ── LEFT COLUMN: controls strip + floorplan ── */}
-      <div style={{ display: "flex", flexDirection: "column", borderRight: "1.5px solid #E2E8F0", overflow: "hidden" }}>
+      {/* ── LEFT: floorplan — canvas sets its own height via aspect ratio ── */}
+      <div style={{ position: "relative", borderRight: "1.5px solid #E2E8F0", alignSelf: "start" }}>
+        {events.length === 0 && (
+          <div style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", zIndex: 2,
+            background: "rgba(255,255,255,0.93)", borderRadius: 7, padding: "7px 18px",
+            fontSize: 12, fontFamily: "'DM Mono',monospace", color: "#94A3B8",
+            whiteSpace: "nowrap", border: "1px solid #E2E8F0", boxShadow: "0 2px 8px rgba(0,0,0,0.07)" }}>
+            Select an activity → then tap the map
+          </div>
+        )}
+        <ShadowingCanvas imageUrl={floorplanUrl} zones={zones} waypoints={waypoints}
+          markers={markers} onCanvasClick={handleCanvasClick} />
 
-        {/* Controls strip — only as wide as this column */}
-        <div style={{ background: "white", borderBottom: "1.5px solid #E2E8F0", padding: "8px 12px", flexShrink: 0 }}>
+        {/* Waypoint counter overlay — bottom-left */}
+        {waypoints.length > 1 && (
+          <div style={{ position: "absolute", bottom: 10, left: 10, display: "flex", gap: 5 }}>
+            <div style={{ background: "rgba(255,255,255,0.92)", border: "1px solid #E2E8F0", borderRadius: 5,
+              padding: "3px 9px", fontSize: 10, fontFamily: "'DM Mono',monospace", color: "#475569" }}>
+              <span style={{ color: "#7C3AED", fontWeight: 700 }}>{waypoints.length}</span> pts
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.92)", border: "1px solid #E2E8F0", borderRadius: 5,
+              padding: "3px 9px", fontSize: 10, fontFamily: "'DM Mono',monospace", color: "#475569" }}>
+              <span style={{ color: "#7C3AED", fontWeight: 700 }}>
+                {[...new Set(waypoints.map(w => w.zoneId).filter(Boolean))].length}
+              </span> zones
+            </div>
+          </div>
+        )}
 
-          {/* Activity row: 6 cols × 2 rows */}
-          <div style={subLabel("#64748B")}>Activity</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4, marginBottom: 7 }}>
+        {/* ── BELOW-CANVAS BAR: counts left · timer+undo right ── */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderTop: "1.5px solid #F1F5F9", gap: 12, background: "white" }}>
+
+          {/* Counts — left */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {counts.map(s => (
+              <div key={s.label} style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "'DM Mono',monospace",
+                  color: s.color, lineHeight: 1 }}>{s.value}</span>
+                <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.07em",
+                  color: "#94A3B8", fontFamily: "'DM Sans',sans-serif" }}>{s.label}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Timer + last event + undo — right */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
+            background: activeEv ? getEventColor(activeEv.eventType) + "0C" : "#F8FAFC",
+            border: "1.5px solid " + (activeEv ? getEventColor(activeEv.eventType) + "40" : "#E2E8F0"),
+            borderRadius: 8, padding: "6px 12px", transition: "all 0.2s" }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+              background: activeEv ? getEventColor(activeEv.eventType) : "#E2E8F0" }} />
+            <span style={{ fontSize: 20, fontWeight: 800, fontFamily: "'DM Mono',monospace",
+              color: activeEv ? "#1E293B" : "#CBD5E1", letterSpacing: "-0.02em", minWidth: 52 }}>
+              {formatElapsed(elapsed)}
+            </span>
+            {activeEv
+              ? <span style={{ fontSize: 10, fontWeight: 700, maxWidth: 200, overflow: "hidden",
+                  textOverflow: "ellipsis", whiteSpace: "nowrap", textTransform: "uppercase",
+                  letterSpacing: "0.05em", color: getEventColor(activeEv.eventType),
+                  fontFamily: "'DM Mono',monospace" }}>
+                  {EVENT_TYPES.find(e => e.id === activeEv.eventType)?.label}
+                  {activeEv.zoneId
+                    ? <span style={{ fontWeight: 400, color: "#94A3B8" }}> · {findZoneName(zones, activeEv.zoneId)}</span>
+                    : null}
+                </span>
+              : <span style={{ fontSize: 11, color: "#CBD5E1", fontFamily: "'DM Sans',sans-serif" }}>
+                  No active event
+                </span>
+            }
+            {lastAction && (
+              <button onClick={undoLast}
+                style={{ flexShrink: 0, padding: "3px 8px", border: "1.5px solid #E2E8F0", borderRadius: 5,
+                  background: "white", color: "#64748B", fontSize: 10, fontWeight: 700,
+                  fontFamily: "'DM Mono',monospace", cursor: "pointer", whiteSpace: "nowrap" }}
+                onMouseOver={e => { e.currentTarget.style.borderColor="#DC2626"; e.currentTarget.style.color="#DC2626"; }}
+                onMouseOut={e => { e.currentTarget.style.borderColor="#E2E8F0"; e.currentTarget.style.color="#64748B"; }}>
+                ↩ Undo
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Recent event log */}
+        <EventLog events={events} setEvents={setEvents} activeEventId={activeEventId} setActiveEventId={setActiveEventId} />
+      </div>
+
+      {/* ── RIGHT SIDEBAR: all controls, scrollable ── */}
+      <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 56px)", background: "white", overflow: "hidden" }}>
+
+        {/* ── SCROLLABLE BODY ── */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 14px 14px" }}>
+
+          {/* ACTIVITY */}
+          {sideHead("Activity", "#475569")}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4 }}>
             {EVENT_TYPES.map(et => (
               <button key={et.id} onClick={() => setEventType(et.id)}
-                style={pill(eventType === et.id, et.color, et.color + "18")}>
+                style={{ ...pill(eventType === et.id, et.color, et.color + "18"), padding: "9px 4px", fontSize: 12 }}>
                 {et.label}
               </button>
             ))}
           </div>
 
-          {/* Posture + Acuity + action buttons — full width grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "5fr 4fr auto", gap: 8, alignItems: "end" }}>
-            <div>
-              <div style={subLabel("#64748B")}>Posture</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4, height: 36 }}>
-                {BODILY_ACTION_TYPES.map(a => (
-                  <button key={a.id} onClick={() => setBodilyAction(a.id)}
-                    style={{ ...pill(bodilyAction === a.id, "#7C3AED", "#EDE9FE"), padding: 0, height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    {a.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div style={subLabel("#64748B")}>Acuity</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, height: 36 }}>
-                {PATIENT_ACUITY.map(a => (
-                  <button key={a.id} onClick={() => setPatientAcuity(a.id)}
-                    style={{ ...pill(patientAcuity === a.id, "#0891B2", "#E0F2FE"), padding: 0, height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    {a.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {events.length > 0 ? (
-              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                <button onClick={logActivityHere}
-                  style={{ padding: "0 12px", height: 36, border: "1.5px solid #7C3AED", borderRadius: 7, background: "#EDE9FE", color: "#7C3AED", fontWeight: 800, fontSize: 11, fontFamily: "'DM Sans',sans-serif", cursor: "pointer", whiteSpace: "nowrap" }}>
-                  ◎ Log Here
-                </button>
-                <button onClick={stopTracking}
-                  style={{ padding: "0 12px", height: 36, border: "none", borderRadius: 7, background: "#DC2626", color: "white", fontWeight: 800, fontSize: 11, fontFamily: "'DM Sans',sans-serif", cursor: "pointer", whiteSpace: "nowrap" }}>
-                  ■ End
-                </button>
-              </div>
-            ) : <div />}
-          </div>
-        </div>
-
-        {/* Floorplan — fills remaining height */}
-        <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-          {events.length === 0 && (
-            <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 2, background: "rgba(255,255,255,0.92)", borderRadius: 6, padding: "5px 14px", fontSize: 11, fontFamily: "'DM Mono',monospace", color: "#94A3B8", whiteSpace: "nowrap", border: "1px solid #E2E8F0" }}>
-              Select an activity above, then tap the map
-            </div>
-          )}
-          <ShadowingCanvas imageUrl={floorplanUrl} zones={zones} waypoints={waypoints} markers={markers} onCanvasClick={handleCanvasClick} height={600} />
-          {waypoints.length > 1 && (
-            <div style={{ position: "absolute", bottom: 8, left: 8, display: "flex", gap: 4 }}>
-              <div style={{ background: "rgba(255,255,255,0.9)", border: "1px solid #E2E8F0", borderRadius: 5, padding: "3px 8px", fontSize: 10, fontFamily: "'DM Mono',monospace", color: "#475569" }}>
-                <span style={{ color: "#7C3AED", fontWeight: 700 }}>{waypoints.length}</span> pts
-              </div>
-              <div style={{ background: "rgba(255,255,255,0.9)", border: "1px solid #E2E8F0", borderRadius: 5, padding: "3px 8px", fontSize: 10, fontFamily: "'DM Mono',monospace", color: "#475569" }}>
-                <span style={{ color: "#7C3AED", fontWeight: 700 }}>{[...new Set(waypoints.map(w => w.zoneId).filter(Boolean))].length}</span> zones
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Event log strip */}
-        <EventLog events={events} setEvents={setEvents} activeEventId={activeEventId} setActiveEventId={setActiveEventId} />
-      </div>
-
-      {/* ── RIGHT COLUMN: markers panel — full screen height ── */}
-      <div style={{ background: "white", padding: "10px 11px", display: "flex", flexDirection: "column", gap: 0, overflowY: "auto", height: "calc(100vh - 56px)" }}>
-
-        {/* STRESS */}
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#DC2626", fontFamily: "'DM Mono',monospace", letterSpacing: "0.05em", marginBottom: 3 }}>
-          ⚡ Stress {activeEv && <span style={{ color: "#94A3B8", fontWeight: 400, fontSize: 9 }}>↳ linked</span>}
-        </div>
-        {STRESS_SUBGROUPS.map(sg => (
-          <div key={sg.id}>
-            <div style={subLabel("#DC262670")}>{sg.label}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3, marginBottom: 3 }}>
-              {STRESS_CATEGORIES.filter(c => c.group === sg.id).map(cat => (
-                <button key={cat.id} onClick={() => stampMarker("stress", cat.id)} style={markerBtn("stress")}
-                  onMouseOver={e => { e.currentTarget.style.background = "#DC2626"; e.currentTarget.style.color = "white"; }}
-                  onMouseOut={e => { e.currentTarget.style.background = "#FFF5F5"; e.currentTarget.style.color = "#DC2626"; }}>
-                  {cat.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-
-        <div style={{ borderTop: "1px solid #F1F5F9", margin: "6px 0" }} />
-
-        {/* RECOVERY */}
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#059669", fontFamily: "'DM Mono',monospace", letterSpacing: "0.05em", marginBottom: 3 }}>
-          🌿 Recovery
-        </div>
-        {RECOVERY_SUBGROUPS.map(sg => (
-          <div key={sg.id}>
-            <div style={subLabel("#05996970")}>{sg.label}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3, marginBottom: 3 }}>
-              {RECOVERY_CATEGORIES.filter(c => c.group === sg.id).map(cat => (
-                <button key={cat.id} onClick={() => stampMarker("recovery", cat.id)} style={markerBtn("recovery")}
-                  onMouseOver={e => { e.currentTarget.style.background = "#059669"; e.currentTarget.style.color = "white"; }}
-                  onMouseOut={e => { e.currentTarget.style.background = "#F0FDF4"; e.currentTarget.style.color = "#059669"; }}>
-                  {cat.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-
-        <div style={{ borderTop: "1px solid #F1F5F9", margin: "6px 0" }} />
-
-        {/* CONTEXTUAL FLAGS */}
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", fontFamily: "'DM Mono',monospace", letterSpacing: "0.05em", marginBottom: 3 }}>
-          ⚑ Context
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, marginBottom: 6 }}>
-          {CONTEXTUAL_FLAGS.map(cat => (
-            <button key={cat.id} onClick={() => stampMarker("contextual", cat.id)} style={markerBtn("contextual")}
-              onMouseOver={e => { e.currentTarget.style.background = "#D97706"; e.currentTarget.style.color = "white"; }}
-              onMouseOut={e => { e.currentTarget.style.background = "#FFFBEB"; e.currentTarget.style.color = "#B45309"; }}>
-              {cat.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ borderTop: "1px solid #F1F5F9", margin: "6px 0" }} />
-
-        {/* LAST ACTION + UNDO */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, minHeight: 32 }}>
-          {lastAction ? (
-            <>
-              <span style={{ fontSize: 11, flexShrink: 0 }}>{lastAction.icon}</span>
-              <div style={{ flex: 1, overflow: "hidden" }}>
-                <div style={{ fontSize: 10, fontFamily: "'DM Mono',monospace", color: "#1E293B", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {lastAction.label}
-                </div>
-                {(lastAction.detail1 || lastAction.detail2) && (
-                  <div style={{ fontSize: 9, fontFamily: "'DM Mono',monospace", color: "#94A3B8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {[lastAction.detail1, lastAction.detail2].filter(Boolean).join(" · ")}
-                  </div>
-                )}
-              </div>
-              <button onClick={undoLast}
-                style={{ flexShrink: 0, padding: "3px 9px", border: "1.5px solid #E2E8F0", borderRadius: 5, background: "white", color: "#64748B", fontSize: 10, fontWeight: 700, fontFamily: "'DM Mono',monospace", cursor: "pointer", whiteSpace: "nowrap" }}
-                onMouseOver={e => { e.currentTarget.style.borderColor = "#DC2626"; e.currentTarget.style.color = "#DC2626"; }}
-                onMouseOut={e => { e.currentTarget.style.borderColor = "#E2E8F0"; e.currentTarget.style.color = "#64748B"; }}>
-                ↩ Undo
+          {/* POSTURE */}
+          {sideHead("Posture", "#475569")}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4 }}>
+            {BODILY_ACTION_TYPES.map(a => (
+              <button key={a.id} onClick={() => setBodilyAction(a.id)}
+                style={{ ...pill(bodilyAction === a.id, "#7C3AED", "#EDE9FE"), padding: "9px 2px", fontSize: 11 }}>
+                {a.label}
               </button>
-            </>
-          ) : (
-            <span style={{ fontSize: 10, fontFamily: "'DM Mono',monospace", color: "#CBD5E1" }}>No actions yet</span>
-          )}
-        </div>
-
-        {/* TIMER */}
-        <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 7, padding: "7px 10px", display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: activeEv ? getEventColor(activeEv.eventType) : "#E2E8F0", flexShrink: 0 }} />
-          <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "'DM Mono',monospace", color: activeEv ? "#1E293B" : "#CBD5E1", letterSpacing: "-0.02em", minWidth: 48 }}>
-            {formatElapsed(elapsed)}
-          </span>
-          {activeEv && (
-            <span style={{ fontSize: 9, fontWeight: 700, color: getEventColor(activeEv.eventType), fontFamily: "'DM Mono',monospace", textTransform: "uppercase", letterSpacing: "0.05em", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-              {EVENT_TYPES.find(e => e.id === activeEv.eventType)?.label}
-              {activeEv.zoneId ? <span style={{ fontWeight: 400, color: "#94A3B8" }}> · {findZoneName(zones, activeEv.zoneId)}</span> : null}
-            </span>
-          )}
-        </div>
-
-        {/* COUNTS */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 4, marginBottom: 6 }}>
-          {counts.map(s => (
-            <div key={s.label} style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "5px 4px", textAlign: "center" }}>
-              <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'DM Mono',monospace", color: s.color, lineHeight: 1 }}>{s.value}</div>
-              <div style={{ fontSize: 8, textTransform: "uppercase", letterSpacing: "0.06em", color: "#94A3B8", marginTop: 2, fontFamily: "'DM Sans',sans-serif" }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* RECENT MARKER LOG */}
-        {markers.length > 0 && (
-          <div style={{ marginTop: "auto", borderTop: "1px solid #F1F5F9", paddingTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
-            {markers.slice(0, 6).map(m => (
-              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, fontFamily: "'DM Mono',monospace" }}>
-                <span style={{ color: m.markerType === "stress" ? "#DC2626" : m.markerType === "contextual" ? "#B45309" : "#059669" }}>
-                  {m.markerType === "stress" ? "⚡" : m.markerType === "contextual" ? "⚑" : "🌿"}
-                </span>
-                <span style={{ color: "#475569", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {[...STRESS_CATEGORIES, ...RECOVERY_CATEGORIES, ...CONTEXTUAL_FLAGS].find(c => c.id === m.category)?.label || m.category}
-                </span>
-                <span style={{ color: "#CBD5E1", flexShrink: 0 }}>{formatClock(m.timestamp)}</span>
-                <button onClick={() => setMarkers(ms => ms.filter(x => x.id !== m.id))}
-                  title="Delete this marker"
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#CBD5E1", fontSize: 13, lineHeight: 1, padding: "0 1px", flexShrink: 0 }}
-                  onMouseOver={e => e.currentTarget.style.color = "#DC2626"}
-                  onMouseOut={e => e.currentTarget.style.color = "#CBD5E1"}>
-                  ×
-                </button>
-              </div>
             ))}
           </div>
-        )}
-      </div>
+
+          {/* ACUITY */}
+          {sideHead("Acuity", "#475569")}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
+            {PATIENT_ACUITY.map(a => (
+              <button key={a.id} onClick={() => setPatientAcuity(a.id)}
+                style={{ ...pill(patientAcuity === a.id, "#0891B2", "#E0F2FE"), padding: "9px 2px", fontSize: 12 }}>
+                {a.label}
+              </button>
+            ))}
+          </div>
+
+          {/* END ACTIONS — only shown when an event is active */}
+          {activeEv && (
+            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+              <button onClick={logActivityHere}
+                style={{ flex: 1, padding: "11px 0", border: "1.5px solid #7C3AED", borderRadius: 8,
+                  background: "#EDE9FE", color: "#7C3AED", fontWeight: 800, fontSize: 13,
+                  fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
+                ◎ Log Here
+              </button>
+              <button onClick={stopTracking}
+                style={{ flex: 1, padding: "11px 0", border: "none", borderRadius: 8,
+                  background: "#DC2626", color: "white", fontWeight: 800, fontSize: 13,
+                  fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
+                ■ End
+              </button>
+            </div>
+          )}
+
+          {/* DIVIDER */}
+          <div style={{ borderTop: "1.5px solid #F1F5F9", margin: "12px 0" }} />
+
+          {/* ⚡ STRESS */}
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#DC2626", fontFamily: "'DM Mono',monospace",
+            letterSpacing: "0.05em", marginBottom: 5 }}>
+            ⚡ Stress {activeEv && <span style={{ fontSize: 9, fontWeight: 400, color: "#94A3B8" }}>↳ linked</span>}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, marginBottom: 6 }}>
+            {STRESS_CATEGORIES.map(cat => (
+              <button key={cat.id} onClick={() => stampMarker("stress", cat.id)}
+                style={{ padding: "8px 3px", border: "1.5px solid #FEE2E2", borderRadius: 6,
+                  cursor: "pointer", fontSize: 11, fontWeight: 600,
+                  fontFamily: "'DM Sans',sans-serif", background: "#FFF5F5", color: "#DC2626",
+                  lineHeight: 1.2, textAlign: "center" }}
+                onMouseOver={e => { e.currentTarget.style.background="#DC2626"; e.currentTarget.style.color="white"; }}
+                onMouseOut={e => { e.currentTarget.style.background="#FFF5F5"; e.currentTarget.style.color="#DC2626"; }}>
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
+          {/* 🌿 RECOVERY */}
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#059669", fontFamily: "'DM Mono',monospace",
+            letterSpacing: "0.05em", marginBottom: 5, marginTop: 8 }}>
+            🌿 Recovery
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, marginBottom: 6 }}>
+            {RECOVERY_CATEGORIES.map(cat => (
+              <button key={cat.id} onClick={() => stampMarker("recovery", cat.id)}
+                style={{ padding: "8px 3px", border: "1.5px solid #D1FAE5", borderRadius: 6,
+                  cursor: "pointer", fontSize: 11, fontWeight: 600,
+                  fontFamily: "'DM Sans',sans-serif", background: "#F0FDF4", color: "#059669",
+                  lineHeight: 1.2, textAlign: "center" }}
+                onMouseOver={e => { e.currentTarget.style.background="#059669"; e.currentTarget.style.color="white"; }}
+                onMouseOut={e => { e.currentTarget.style.background="#F0FDF4"; e.currentTarget.style.color="#059669"; }}>
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ⚑ CONTEXT */}
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", fontFamily: "'DM Mono',monospace",
+            letterSpacing: "0.05em", marginBottom: 5, marginTop: 8 }}>
+            ⚑ Context
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, marginBottom: 10 }}>
+            {CONTEXTUAL_FLAGS.map(cat => (
+              <button key={cat.id} onClick={() => stampMarker("contextual", cat.id)}
+                style={{ padding: "8px 3px", border: "1.5px solid #FEF3C7", borderRadius: 6,
+                  cursor: "pointer", fontSize: 11, fontWeight: 600,
+                  fontFamily: "'DM Sans',sans-serif", background: "#FFFBEB", color: "#B45309",
+                  lineHeight: 1.2, textAlign: "center" }}
+                onMouseOver={e => { e.currentTarget.style.background="#D97706"; e.currentTarget.style.color="white"; }}
+                onMouseOut={e => { e.currentTarget.style.background="#FFFBEB"; e.currentTarget.style.color="#B45309"; }}>
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
+          {/* RECENT MARKER LOG */}
+          {markers.length > 0 && (
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+              {markers.slice(0, 5).map(m => (
+                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 6,
+                  fontSize: 11, fontFamily: "'DM Mono',monospace" }}>
+                  <span style={{ color: m.markerType==="stress" ? "#DC2626" : m.markerType==="contextual" ? "#B45309" : "#059669" }}>
+                    {m.markerType==="stress" ? "⚡" : m.markerType==="contextual" ? "⚑" : "🌿"}
+                  </span>
+                  <span style={{ flex: 1, color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {[...STRESS_CATEGORIES,...RECOVERY_CATEGORIES,...CONTEXTUAL_FLAGS].find(c=>c.id===m.category)?.label||m.category}
+                  </span>
+                  <span style={{ color: "#CBD5E1", flexShrink: 0 }}>{formatClock(m.timestamp)}</span>
+                  <button onClick={() => setMarkers(ms => ms.filter(x => x.id !== m.id))}
+                    style={{ background:"none", border:"none", cursor:"pointer", color:"#CBD5E1",
+                      fontSize:14, lineHeight:1, padding:"0 1px", flexShrink:0 }}
+                    onMouseOver={e=>e.currentTarget.style.color="#DC2626"}
+                    onMouseOut={e=>e.currentTarget.style.color="#CBD5E1"}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>{/* end scrollable body */}
+      </div>{/* end right sidebar */}
     </div>
   );
 }
@@ -1455,8 +1474,8 @@ function ReviewTab({ session, zones, events, markers }) {
 
       <SectionHeader>CSV Schema</SectionHeader>
       {[
-        { file:"events.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · seniority_level · clinical_experience · shift_type · departmental_status · protocol_checked · event_id · event_type · bodily_action · patient_acuity · start_time · end_time · duration_seconds · zone_id · zone_name · x_coord · y_coord · people_present · interruption_flag · interruption_type · note" },
-        { file:"markers.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · seniority_level · clinical_experience · shift_type · departmental_status · marker_id · marker_type (stress / recovery / contextual) · category · intensity_1_5 · timestamp · zone_id · zone_name · x_coord · y_coord · linked_event_id" },
+        { file:"events.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · first_language · seniority_level · clinical_experience · shift_type · departmental_status · protocol_checked · event_id · event_type · bodily_action · patient_acuity · start_time · end_time · duration_seconds · zone_id · zone_name · x_coord · y_coord · people_present · interruption_flag · interruption_type · note" },
+        { file:"markers.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · first_language · seniority_level · clinical_experience · shift_type · departmental_status · marker_id · marker_type (stress / recovery / contextual) · category · intensity_1_5 · timestamp · zone_id · zone_name · x_coord · y_coord · linked_event_id" },
       ].map(s => (
         <div key={s.file} style={{ background:"#F8FAFC", border:"1.5px solid #E2E8F0", borderRadius:7, padding:"8px 11px", marginBottom:6 }}>
           <div style={{ fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#2563EB", marginBottom:3 }}>{s.file}</div>
@@ -1469,7 +1488,7 @@ function ReviewTab({ session, zones, events, markers }) {
 
 // ─── Root ──────────────────────────────────────────────────────────────────────
 
-export default function Page() {
+export default function HospitalShadowingApp() {
   const [tab, setTab] = useState("setup");
 
   // ── Study-level state: persists across all participants in a field day ──
