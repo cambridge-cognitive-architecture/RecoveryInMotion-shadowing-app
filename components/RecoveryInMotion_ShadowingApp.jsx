@@ -608,7 +608,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
         </div>
 
         {/* Right: participant information + zones */}
-        <div style={{ maxHeight:"calc(100dvh - 220px)", overflowY:"auto", paddingRight:4 }}>
+        <div style={{ maxHeight:"calc(100dvh - 200px)", overflowY:"auto", paddingRight:4 }}>
           <SectionHeader>Participant Information</SectionHeader>
           <Field label="Participant Code"><Input value={session.participantCode} onChange={v=>updateSession("participantCode",v)} placeholder="P-01" /></Field>
           <Field label="Participant Role"><Select value={session.participantRole} onChange={v=>updateSession("participantRole",v)} options={PARTICIPANT_ROLES} /></Field>
@@ -1147,7 +1147,7 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
 
   return (
     // Landscape-optimised: map left (~65%), controls sidebar right (~35%)
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", alignItems: "start", minHeight: "calc(100dvh - 56px)", overflow: "hidden" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", height: "calc(100dvh - 52px)", overflow: "hidden" }}>
 
       {/* ── LEFT: floorplan — canvas sets its own height via aspect ratio ── */}
       <div style={{ position: "relative", borderRight: "1.5px solid #E2E8F0", alignSelf: "start" }}>
@@ -1237,7 +1237,7 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
       </div>
 
       {/* ── RIGHT SIDEBAR: all controls, scrollable ── */}
-      <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 56px)", background: "white", overflow: "hidden" }}>
+      <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 52px)", background: "white", overflow: "hidden" }}>
 
         {/* ── SCROLLABLE BODY ── */}
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 10px 10px" }}>
@@ -1294,7 +1294,7 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
           )}
 
           {/* DIVIDER */}
-          <div style={{ borderTop: "1.5px solid #F1F5F9", margin: "12px 0" }} />
+          <div style={{ borderTop: "1.5px solid #F1F5F9", margin: "7px 0" }} />
 
           {/* ⚡ STRESS */}
           <div style={{ fontSize: 11, fontWeight: 700, color: "#DC2626", fontFamily: "'DM Mono',monospace",
@@ -1339,7 +1339,7 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
             letterSpacing: "0.05em", marginBottom: 5, marginTop: 8 }}>
             ⚑ Context
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, marginBottom: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, marginBottom: 4 }}>
             {CONTEXTUAL_FLAGS.map(cat => (
               <button key={cat.id} onClick={() => stampMarker("contextual", cat.id)}
                 style={{ padding: "5px 3px", border: "1.5px solid #FEF3C7", borderRadius: 6,
@@ -1353,28 +1353,6 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
             ))}
           </div>
 
-          {/* RECENT MARKER LOG */}
-          {markers.length > 0 && (
-            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
-              {markers.slice(0, 5).map(m => (
-                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 6,
-                  fontSize: 11, fontFamily: "'DM Mono',monospace" }}>
-                  <span style={{ color: m.markerType==="stress" ? "#DC2626" : m.markerType==="contextual" ? "#B45309" : "#059669" }}>
-                    {m.markerType==="stress" ? "⚡" : m.markerType==="contextual" ? "⚑" : "🌿"}
-                  </span>
-                  <span style={{ flex: 1, color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {[...STRESS_CATEGORIES,...RECOVERY_CATEGORIES,...CONTEXTUAL_FLAGS].find(c=>c.id===m.category)?.label||m.category}
-                  </span>
-                  <span style={{ color: "#CBD5E1", flexShrink: 0 }}>{formatClock(m.timestamp)}</span>
-                  <button onClick={() => setMarkers(ms => ms.filter(x => x.id !== m.id))}
-                    style={{ background:"none", border:"none", cursor:"pointer", color:"#CBD5E1",
-                      fontSize:14, lineHeight:1, padding:"0 1px", flexShrink:0 }}
-                    onMouseOver={e=>e.currentTarget.style.color="#DC2626"}
-                    onMouseOut={e=>e.currentTarget.style.color="#CBD5E1"}>×</button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>{/* end scrollable body */}
       </div>{/* end right sidebar */}
     </div>
@@ -1534,8 +1512,8 @@ export default function HospitalShadowingApp() {
 
       <div style={{ background:"white", borderBottom:"1.5px solid #E2E8F0" }}>
         <div style={{ maxWidth:1100, margin:"0 auto", padding:"0 22px", display:"flex", alignItems:"flex-end", justifyContent:"space-between" }}>
-          <div style={{ paddingTop:14, paddingBottom:10 }}>
-            <div style={{ fontSize:16, fontWeight:800, color:"#1E293B", letterSpacing:"-0.02em", fontFamily:"'DM Sans',sans-serif" }}>
+          <div style={{ paddingTop:8, paddingBottom:6 }}>
+            <div style={{ fontSize:14, fontWeight:800, color:"#1E293B", letterSpacing:"-0.02em", fontFamily:"'DM Sans',sans-serif" }}>
               <span style={{ color:"#2563EB" }}>Recovery in Motion</span> · Stream B Shadowing
             </div>
             <div style={{ fontSize:10, color:"#94A3B8", fontFamily:"'DM Mono',monospace", marginTop:2 }}>
