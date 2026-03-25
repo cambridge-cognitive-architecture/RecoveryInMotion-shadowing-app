@@ -545,7 +545,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
       </div>
 
       {/* ── MAIN ROW: floorplan left, participant + zones right ── */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 320px", gap:20 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 320px", gap:20, alignItems:"start" }}>
 
         {/* Left: floorplan & zone drawing */}
         <div>
@@ -608,7 +608,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
         </div>
 
         {/* Right: participant information + zones */}
-        <div>
+        <div style={{ maxHeight:"calc(100dvh - 220px)", overflowY:"auto", paddingRight:4 }}>
           <SectionHeader>Participant Information</SectionHeader>
           <Field label="Participant Code"><Input value={session.participantCode} onChange={v=>updateSession("participantCode",v)} placeholder="P-01" /></Field>
           <Field label="Participant Role"><Select value={session.participantRole} onChange={v=>updateSession("participantRole",v)} options={PARTICIPANT_ROLES} /></Field>
@@ -1142,7 +1142,7 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
   // ── Sidebar section header helper ──────────────────────────────────────────
   const sideHead = (label, color) => (
     <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase",
-      color, fontFamily: "'DM Mono',monospace", marginBottom: 4, marginTop: 8 }}>{label}</div>
+      color, fontFamily: "'DM Mono',monospace", marginBottom: 3, marginTop: 5 }}>{label}</div>
   );
 
   return (
@@ -1240,14 +1240,14 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
       <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 56px)", background: "white", overflow: "hidden" }}>
 
         {/* ── SCROLLABLE BODY ── */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 14px 14px" }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 10px 10px" }}>
 
           {/* ACTIVITY */}
           {sideHead("Activity", "#475569")}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4 }}>
             {EVENT_TYPES.map(et => (
               <button key={et.id} onClick={() => setEventType(et.id)}
-                style={{ ...pill(eventType === et.id, et.color, et.color + "18"), padding: "9px 4px", fontSize: 12 }}>
+                style={{ ...pill(eventType === et.id, et.color, et.color + "18"), padding: "6px 4px", fontSize: 11 }}>
                 {et.label}
               </button>
             ))}
@@ -1258,7 +1258,7 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4 }}>
             {BODILY_ACTION_TYPES.map(a => (
               <button key={a.id} onClick={() => setBodilyAction(a.id)}
-                style={{ ...pill(bodilyAction === a.id, "#7C3AED", "#EDE9FE"), padding: "9px 2px", fontSize: 11 }}>
+                style={{ ...pill(bodilyAction === a.id, "#7C3AED", "#EDE9FE"), padding: "6px 2px", fontSize: 10 }}>
                 {a.label}
               </button>
             ))}
@@ -1269,7 +1269,7 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
             {PATIENT_ACUITY.map(a => (
               <button key={a.id} onClick={() => setPatientAcuity(a.id)}
-                style={{ ...pill(patientAcuity === a.id, "#0891B2", "#E0F2FE"), padding: "9px 2px", fontSize: 12 }}>
+                style={{ ...pill(patientAcuity === a.id, "#0891B2", "#E0F2FE"), padding: "6px 2px", fontSize: 11 }}>
                 {a.label}
               </button>
             ))}
@@ -1279,14 +1279,14 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
           {activeEv && (
             <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
               <button onClick={logActivityHere}
-                style={{ flex: 1, padding: "11px 0", border: "1.5px solid #7C3AED", borderRadius: 8,
-                  background: "#EDE9FE", color: "#7C3AED", fontWeight: 800, fontSize: 13,
+                style={{ flex: 1, padding: "8px 0", border: "1.5px solid #7C3AED", borderRadius: 8,
+                  background: "#EDE9FE", color: "#7C3AED", fontWeight: 800, fontSize: 12,
                   fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
                 ◎ Log Here
               </button>
               <button onClick={stopTracking}
-                style={{ flex: 1, padding: "11px 0", border: "none", borderRadius: 8,
-                  background: "#DC2626", color: "white", fontWeight: 800, fontSize: 13,
+                style={{ flex: 1, padding: "8px 0", border: "none", borderRadius: 8,
+                  background: "#DC2626", color: "white", fontWeight: 800, fontSize: 12,
                   fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
                 ■ End
               </button>
@@ -1304,8 +1304,8 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, marginBottom: 6 }}>
             {STRESS_CATEGORIES.map(cat => (
               <button key={cat.id} onClick={() => stampMarker("stress", cat.id)}
-                style={{ padding: "8px 3px", border: "1.5px solid #FEE2E2", borderRadius: 6,
-                  cursor: "pointer", fontSize: 11, fontWeight: 600,
+                style={{ padding: "5px 3px", border: "1.5px solid #FEE2E2", borderRadius: 6,
+                  cursor: "pointer", fontSize: 10, fontWeight: 600,
                   fontFamily: "'DM Sans',sans-serif", background: "#FFF5F5", color: "#DC2626",
                   lineHeight: 1.2, textAlign: "center" }}
                 onMouseOver={e => { e.currentTarget.style.background="#DC2626"; e.currentTarget.style.color="white"; }}
@@ -1323,8 +1323,8 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, marginBottom: 6 }}>
             {RECOVERY_CATEGORIES.map(cat => (
               <button key={cat.id} onClick={() => stampMarker("recovery", cat.id)}
-                style={{ padding: "8px 3px", border: "1.5px solid #D1FAE5", borderRadius: 6,
-                  cursor: "pointer", fontSize: 11, fontWeight: 600,
+                style={{ padding: "5px 3px", border: "1.5px solid #D1FAE5", borderRadius: 6,
+                  cursor: "pointer", fontSize: 10, fontWeight: 600,
                   fontFamily: "'DM Sans',sans-serif", background: "#F0FDF4", color: "#059669",
                   lineHeight: 1.2, textAlign: "center" }}
                 onMouseOver={e => { e.currentTarget.style.background="#059669"; e.currentTarget.style.color="white"; }}
@@ -1342,8 +1342,8 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, marginBottom: 10 }}>
             {CONTEXTUAL_FLAGS.map(cat => (
               <button key={cat.id} onClick={() => stampMarker("contextual", cat.id)}
-                style={{ padding: "8px 3px", border: "1.5px solid #FEF3C7", borderRadius: 6,
-                  cursor: "pointer", fontSize: 11, fontWeight: 600,
+                style={{ padding: "5px 3px", border: "1.5px solid #FEF3C7", borderRadius: 6,
+                  cursor: "pointer", fontSize: 10, fontWeight: 600,
                   fontFamily: "'DM Sans',sans-serif", background: "#FFFBEB", color: "#B45309",
                   lineHeight: 1.2, textAlign: "center" }}
                 onMouseOver={e => { e.currentTarget.style.background="#D97706"; e.currentTarget.style.color="white"; }}
