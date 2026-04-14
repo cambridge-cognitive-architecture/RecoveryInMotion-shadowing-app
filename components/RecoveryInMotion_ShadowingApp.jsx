@@ -386,19 +386,26 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
 
     // Draft polygon
     if (drawingMode && draftPoints.length > 0) {
-      ctx.strokeStyle = "#F59E0B"; ctx.lineWidth = 2; ctx.setLineDash([5,4]);
+      // Scale-aware sizes: lineWidth and snap threshold in canvas pixels
+      const scale = canvasDims.width / 1000; // relative to a 1000px reference
+      const lw = Math.max(3, 3 * scale);
+      const snapThreshold = 20 * scale;
+      const dotR = Math.max(8, 8 * scale);
+      const snapRingR = Math.max(18, 18 * scale);
+
+      ctx.strokeStyle = "#F59E0B"; ctx.lineWidth = lw; ctx.setLineDash([8 * scale, 5 * scale]);
       ctx.beginPath(); ctx.moveTo(draftPoints[0].x, draftPoints[0].y);
       draftPoints.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
       if (hoverPoint) ctx.lineTo(hoverPoint.x, hoverPoint.y);
       ctx.stroke(); ctx.setLineDash([]);
       draftPoints.forEach((p, i) => {
-        ctx.beginPath(); ctx.arc(p.x, p.y, i===0?7:4, 0, Math.PI*2);
-        ctx.fillStyle = i===0?"#F59E0B":"#FCD34D"; ctx.strokeStyle="white"; ctx.lineWidth=1.5; ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(p.x, p.y, i===0 ? dotR : dotR * 0.6, 0, Math.PI*2);
+        ctx.fillStyle = i===0?"#F59E0B":"#FCD34D"; ctx.strokeStyle="white"; ctx.lineWidth=lw; ctx.fill(); ctx.stroke();
       });
       if (draftPoints.length >= 3 && hoverPoint) {
         const fp = draftPoints[0];
-        if (Math.hypot(hoverPoint.x-fp.x, hoverPoint.y-fp.y) < 16) {
-          ctx.beginPath(); ctx.arc(fp.x,fp.y,13,0,Math.PI*2); ctx.strokeStyle="#F59E0B"; ctx.lineWidth=2.5; ctx.stroke();
+        if (Math.hypot(hoverPoint.x-fp.x, hoverPoint.y-fp.y) < snapThreshold) {
+          ctx.beginPath(); ctx.arc(fp.x,fp.y,snapRingR,0,Math.PI*2); ctx.strokeStyle="#F59E0B"; ctx.lineWidth=lw+1; ctx.stroke();
         }
       }
     }
@@ -430,7 +437,7 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
     const rect = canvasRef.current.getBoundingClientRect();
     const sx = canvasRef.current.width / rect.width;
     const sy = canvasRef.current.height / rect.height;
-    return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy) };
+    return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy), scale: sx };
   }
 
   // Always wire mousemove so React doesn't drop events when drawingMode toggles
@@ -508,7 +515,9 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
     if (!drawingZone) return;
     if (draftPoints.length >= 3) {
       const fp = draftPoints[0];
-      if (Math.hypot(pos.x - fp.x, pos.y - fp.y) < 16) {
+      // 20 CSS pixels converted to canvas pixels via scale factor
+      const threshold = (pos.scale || 1) * 20;
+      if (Math.hypot(pos.x - fp.x, pos.y - fp.y) < threshold) {
         setCompletedPoly([...draftPoints]);
         setDraftPoints([]); setHoverPoint(null);
         setDrawingZone(false); setAwaitingName(true); setPendingName("");
