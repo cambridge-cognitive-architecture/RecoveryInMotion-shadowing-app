@@ -430,12 +430,17 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
     return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy) };
   }
 
+  // Always wire mousemove so React doesn't drop events when drawingMode toggles
+  function handleMouseMove(e) {
+    if (onCanvasMouseMove) onCanvasMouseMove(getPos(e));
+  }
+
   return (
     <canvas ref={canvasRef} width={canvasDims.width} height={canvasDims.height}
       onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
-      onMouseMove={onCanvasMouseMove ? e => onCanvasMouseMove(getPos(e)) : undefined}
+      onMouseMove={handleMouseMove}
       onMouseLeave={onCanvasMouseLeave}
-      style={{ width:"100%", height:"auto", maxHeight:height, borderRadius:10, display:"block", cursor:"crosshair", objectFit:"contain" }}
+      style={{ width:"100%", height:"auto", maxHeight:height, borderRadius:10, display:"block", cursor: onCanvasClick ? "crosshair" : "default" }}
     />
   );
 }
@@ -611,7 +616,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
               imageUrl={floorplanUrl} zones={zones}
               drawingMode={drawingZone} draftPoints={draftPoints} hoverPoint={hoverPoint}
               onCanvasClick={handleCanvasClick}
-              onCanvasMouseMove={drawingZone ? setHoverPoint : undefined}
+              onCanvasMouseMove={setHoverPoint}
               onCanvasMouseLeave={() => setHoverPoint(null)}
               height={460}
             />
