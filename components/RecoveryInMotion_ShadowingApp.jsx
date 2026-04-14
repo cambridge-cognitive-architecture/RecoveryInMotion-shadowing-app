@@ -22,11 +22,15 @@ const EVENT_TYPES = [
 
 // Bodily action / posture states (logged as sub-type on each event)
 const BODILY_ACTION_TYPES = [
-  { id: "crouching", label: "Crouching / Reaching" },
-  { id: "running",   label: "Running"               },
-  { id: "sitting",   label: "Sitting"               },
-  { id: "standing",  label: "Standing"              },
-  { id: "walking",   label: "Walking"               },
+  { id: "crouching",               label: "Crouching / Reaching"   },
+  { id: "running",                  label: "Running"                },
+  { id: "sitting",                  label: "Sitting"               },
+  { id: "standing",                 label: "Standing"              },
+  { id: "walking",                  label: "Walking"               },
+  { id: "pushing_wheelchair",       label: "Pushing wheelchair"    },
+  { id: "pushing_bed",              label: "Pushing bed"           },
+  { id: "support_patient_walking",  label: "Supporting pt. walking"},
+  { id: "carrying",                 label: "Carrying"              },
 ];
 
 // Stress markers — grouped for panel navigation (H1–H4 cascade)
@@ -65,7 +69,9 @@ const RECOVERY_SUBGROUPS = [
 
 // Contextual flags — factual environmental conditions, logged separately from stress/recovery
 const CONTEXTUAL_FLAGS = [
-  { id: "crash_call_nearby",  label: "Crash call"        },
+  { id: "interruption",    label: "Interruption"      },
+  { id: "red_phone",       label: "Red phone"         },
+  { id: "crash_phone",     label: "Crash phone"       },
   { id: "equipment_broken",   label: "Equip. broken"     },
   { id: "handover_underway",  label: "Handover underway" },
   { id: "maintenance_works",  label: "Maintenance / works"},
@@ -99,8 +105,21 @@ const GENDER_OPTIONS = ["female", "male", "non-binary", "prefer not to say"];
 // First language
 const FIRST_LANGUAGE_OPTIONS = ["English", "Other", "Prefer not to say"];
 
-// Seniority levels (Stream B Table 4)
-const SENIORITY_LEVELS = ["student", "band_2_4", "band_5_6", "band_7_8", "junior_doctor", "registrar", "consultant"];
+// Seniority levels (Stream B Table 4) — UK NHS bandings + training grades
+const SENIORITY_LEVELS = [
+  { id: "band_5",          label: "Band 5"              },
+  { id: "band_6",          label: "Band 6"              },
+  { id: "band_7",          label: "Band 7"              },
+  { id: "st3",             label: "ST3"                 },
+  { id: "st4",             label: "ST4"                 },
+  { id: "st5",             label: "ST5"                 },
+  { id: "st6",             label: "ST6"                 },
+  { id: "st7",             label: "ST7"                 },
+  { id: "clinical_fellow", label: "Clinical Fellow"     },
+  { id: "fy1",             label: "Foundation Year 1"   },
+  { id: "fy2",             label: "Foundation Year 2"   },
+  { id: "student",         label: "Student"             },
+];
 
 // Clinical experience brackets
 const EXPERIENCE_CATEGORIES = ["<1 year", "1–2 years", "2–3 years", "3–5 years", "5–10 years", "10+ years"];
@@ -306,11 +325,17 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
   const [imgLoaded, setImgLoaded] = useState(false);
+  const [canvasDims, setCanvasDims] = useState({ width: 1000, height: 600 });
 
   useEffect(() => {
     if (!imageUrl) { setImgLoaded(false); return; }
     const img = new Image();
-    img.onload = () => { imgRef.current = img; setImgLoaded(true); };
+    img.onload = () => {
+      imgRef.current = img;
+      // Use the image's native dimensions so we get full resolution
+      setCanvasDims({ width: img.naturalWidth, height: img.naturalHeight });
+      setImgLoaded(true);
+    };
     img.src = imageUrl;
   }, [imageUrl]);
 
@@ -397,7 +422,7 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
       ctx.strokeStyle="#2563EB"; ctx.lineWidth=2; ctx.stroke();
       ctx.fillStyle="rgba(37,99,235,0.15)"; ctx.fill();
     }
-  }, [imageUrl, imgLoaded, zones, drawingMode, draftPoints, hoverPoint, events, markers, pendingPos]);
+  }, [imageUrl, imgLoaded, zones, drawingMode, draftPoints, hoverPoint, events, markers, pendingPos, canvasDims]);
 
   function getPos(e) {
     const rect = canvasRef.current.getBoundingClientRect();
@@ -407,11 +432,11 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
   }
 
   return (
-    <canvas ref={canvasRef} width={1000} height={600}
+    <canvas ref={canvasRef} width={canvasDims.width} height={canvasDims.height}
       onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
       onMouseMove={onCanvasMouseMove ? e => onCanvasMouseMove(getPos(e)) : undefined}
       onMouseLeave={onCanvasMouseLeave}
-      style={{ width:"100%", height:"auto", maxHeight:height, borderRadius:10, display:"block", cursor:"crosshair" }}
+      style={{ width:"100%", height:"auto", maxHeight:height, borderRadius:10, display:"block", cursor:"crosshair", objectFit:"contain" }}
     />
   );
 }
@@ -683,32 +708,6 @@ function QuickMarkerPanel({ markers, setMarkers, activeEventId, activeEv, zones 
     <div style={{ background: "white", border: "1.5px solid #E2E8F0", borderRadius: 10, padding: "10px 11px" }}>
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748B", fontFamily: "'DM Mono',monospace", marginBottom: 8 }}>
         Quick Markers {activeEv && <span style={{ color: "#059669", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>↳ linked</span>}
-      </div>
-
-      {/* ── STRESS ── */}
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#DC2626", fontFamily: "'DM Mono',monospace", marginBottom: 4, letterSpacing: "0.05em" }}>⚡ Stress</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3, marginBottom: 10 }}>
-        {STRESS_CATEGORIES.map(cat => (
-          <button key={cat.id} onClick={() => stampMarker("stress", cat.id)}
-            style={{ padding: "5px 2px", border: "1.5px solid #FEE2E2", borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: "#FFF5F5", color: "#DC2626", lineHeight: 1.2, textAlign: "center" }}
-            onMouseOver={e => { e.currentTarget.style.background = "#DC2626"; e.currentTarget.style.color = "white"; }}
-            onMouseOut={e => { e.currentTarget.style.background = "#FFF5F5"; e.currentTarget.style.color = "#DC2626"; }}>
-            {cat.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── RECOVERY ── */}
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#059669", fontFamily: "'DM Mono',monospace", marginBottom: 4, letterSpacing: "0.05em" }}>🌿 Recovery</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3, marginBottom: 10 }}>
-        {RECOVERY_CATEGORIES.map(cat => (
-          <button key={cat.id} onClick={() => stampMarker("recovery", cat.id)}
-            style={{ padding: "5px 2px", border: "1.5px solid #D1FAE5", borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: "#F0FDF4", color: "#059669", lineHeight: 1.2, textAlign: "center" }}
-            onMouseOver={e => { e.currentTarget.style.background = "#059669"; e.currentTarget.style.color = "white"; }}
-            onMouseOut={e => { e.currentTarget.style.background = "#F0FDF4"; e.currentTarget.style.color = "#059669"; }}>
-            {cat.label}
-          </button>
-        ))}
       </div>
 
       {/* ── CONTEXTUAL FLAGS ── */}
@@ -1252,9 +1251,9 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
             ))}
           </div>
 
-          {/* POSTURE */}
-          {sideHead("Posture", "#475569")}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4 }}>
+          {/* POSTURE / MOBILISATION */}
+          {sideHead("Posture / Mobilisation", "#475569")}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
             {BODILY_ACTION_TYPES.map(a => (
               <button key={a.id} onClick={() => setBodilyAction(a.id)}
                 style={{ ...pill(bodilyAction === a.id, "#7C3AED", "#EDE9FE"), padding: "6px 2px", fontSize: 10 }}>
@@ -1295,47 +1294,9 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
           {/* DIVIDER */}
           <div style={{ borderTop: "1.5px solid #F1F5F9", margin: "7px 0" }} />
 
-          {/* ⚡ STRESS */}
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#DC2626", fontFamily: "'DM Mono',monospace",
-            letterSpacing: "0.05em", marginBottom: 5 }}>
-            ⚡ Stress {activeEv && <span style={{ fontSize: 9, fontWeight: 400, color: "#94A3B8" }}>↳ linked</span>}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, marginBottom: 6 }}>
-            {STRESS_CATEGORIES.map(cat => (
-              <button key={cat.id} onClick={() => stampMarker("stress", cat.id)}
-                style={{ padding: "5px 3px", border: "1.5px solid #FEE2E2", borderRadius: 6,
-                  cursor: "pointer", fontSize: 10, fontWeight: 600,
-                  fontFamily: "'DM Sans',sans-serif", background: "#FFF5F5", color: "#DC2626",
-                  lineHeight: 1.2, textAlign: "center" }}
-                onMouseOver={e => { e.currentTarget.style.background="#DC2626"; e.currentTarget.style.color="white"; }}
-                onMouseOut={e => { e.currentTarget.style.background="#FFF5F5"; e.currentTarget.style.color="#DC2626"; }}>
-                {cat.label}
-              </button>
-            ))}
-          </div>
-
-          {/* 🌿 RECOVERY */}
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#059669", fontFamily: "'DM Mono',monospace",
-            letterSpacing: "0.05em", marginBottom: 5, marginTop: 8 }}>
-            🌿 Recovery
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, marginBottom: 6 }}>
-            {RECOVERY_CATEGORIES.map(cat => (
-              <button key={cat.id} onClick={() => stampMarker("recovery", cat.id)}
-                style={{ padding: "5px 3px", border: "1.5px solid #D1FAE5", borderRadius: 6,
-                  cursor: "pointer", fontSize: 10, fontWeight: 600,
-                  fontFamily: "'DM Sans',sans-serif", background: "#F0FDF4", color: "#059669",
-                  lineHeight: 1.2, textAlign: "center" }}
-                onMouseOver={e => { e.currentTarget.style.background="#059669"; e.currentTarget.style.color="white"; }}
-                onMouseOut={e => { e.currentTarget.style.background="#F0FDF4"; e.currentTarget.style.color="#059669"; }}>
-                {cat.label}
-              </button>
-            ))}
-          </div>
-
           {/* ⚑ CONTEXT */}
           <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", fontFamily: "'DM Mono',monospace",
-            letterSpacing: "0.05em", marginBottom: 5, marginTop: 8 }}>
+            letterSpacing: "0.05em", marginBottom: 5 }}>
             ⚑ Context
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, marginBottom: 4 }}>
