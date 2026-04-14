@@ -320,7 +320,7 @@ function StatCard({ label, value, color }) {
 
 // ─── FloorplanCanvas ───────────────────────────────────────────────────────────
 
-function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], hoverPoint=null, onCanvasClick, onCanvasMouseMove, onCanvasMouseLeave, events=[], markers=[], pendingPos=null, height=480 }) {
+function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], hoverPoint=null, onCanvasClick, onCanvasMouseMove, onCanvasMouseLeave, events=[], markers=[], pendingPos=null, height=480, previewPoly=null }) {
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -384,14 +384,25 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
       zone.points.forEach(p => { ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fillStyle=color; ctx.fill(); });
     });
 
+    // Preview polygon (completed but not yet named — shown in amber)
+    if (previewPoly && previewPoly.length >= 3) {
+      ctx.beginPath();
+      ctx.moveTo(previewPoly[0].x, previewPoly[0].y);
+      previewPoly.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.closePath();
+      ctx.fillStyle = "#F59E0B30"; ctx.fill();
+      ctx.strokeStyle = "#F59E0B"; ctx.lineWidth = Math.max(2, 2 * (canvasDims.width / 1000));
+      ctx.setLineDash([]); ctx.stroke();
+    }
+
     // Draft polygon
     if (drawingMode && draftPoints.length > 0) {
       // Scale-aware sizes: lineWidth and snap threshold in canvas pixels
       const scale = canvasDims.width / 1000; // relative to a 1000px reference
-      const lw = Math.max(3, 3 * scale);
-      const snapThreshold = 20 * scale;
-      const dotR = Math.max(8, 8 * scale);
-      const snapRingR = Math.max(18, 18 * scale);
+      const lw = Math.max(2, 2 * scale);
+      const snapThreshold = 12 * scale;
+      const dotR = Math.max(6, 6 * scale);
+      const snapRingR = Math.max(14, 14 * scale);
 
       ctx.strokeStyle = "#F59E0B"; ctx.lineWidth = lw; ctx.setLineDash([8 * scale, 5 * scale]);
       ctx.beginPath(); ctx.moveTo(draftPoints[0].x, draftPoints[0].y);
@@ -431,7 +442,7 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
       ctx.strokeStyle="#2563EB"; ctx.lineWidth=2; ctx.stroke();
       ctx.fillStyle="rgba(37,99,235,0.15)"; ctx.fill();
     }
-  }, [imageUrl, imgLoaded, zones, drawingMode, draftPoints, hoverPoint, events, markers, pendingPos, canvasDims]);
+  }, [imageUrl, imgLoaded, zones, drawingMode, draftPoints, hoverPoint, events, markers, pendingPos, canvasDims, previewPoly]);
 
   function getPos(e) {
     const rect = canvasRef.current.getBoundingClientRect();
@@ -515,8 +526,8 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
     if (!drawingZone) return;
     if (draftPoints.length >= 3) {
       const fp = draftPoints[0];
-      // 20 CSS pixels converted to canvas pixels via scale factor
-      const threshold = (pos.scale || 1) * 20;
+      // 12 CSS pixels converted to canvas pixels via scale factor
+      const threshold = (pos.scale || 1) * 12;
       if (Math.hypot(pos.x - fp.x, pos.y - fp.y) < threshold) {
         setCompletedPoly([...draftPoints]);
         setDraftPoints([]); setHoverPoint(null);
@@ -631,6 +642,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
               onCanvasMouseMove={setHoverPoint}
               onCanvasMouseLeave={() => setHoverPoint(null)}
               height={460}
+              previewPoly={completedPoly}
             />
           </div>
 
