@@ -327,16 +327,19 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
   const [canvasDims, setCanvasDims] = useState({ width: 1000, height: 600 });
 
   useEffect(() => {
-    if (!imageUrl) { setImgLoaded(false); return; }
+    if (!imageUrl) { setImgLoaded(false); setCanvasDims({ width: 1000, height: 600 }); return; }
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
-      // Use the image's native dimensions so we get full resolution
       setCanvasDims({ width: img.naturalWidth, height: img.naturalHeight });
       setImgLoaded(true);
     };
     img.src = imageUrl;
   }, [imageUrl]);
+
+  // Constrain width so the canvas never stretches beyond its natural aspect ratio
+  const aspectRatio = canvasDims.width / canvasDims.height;
+  const maxWidth = Math.round(height * aspectRatio);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -440,7 +443,7 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
       onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
       onMouseMove={handleMouseMove}
       onMouseLeave={onCanvasMouseLeave}
-      style={{ width:"100%", height:"auto", maxHeight:height, borderRadius:10, display:"block", cursor: onCanvasClick ? "crosshair" : "default" }}
+      style={{ width:"100%", maxWidth:maxWidth, height:"auto", maxHeight:height, borderRadius:10, display:"block", cursor: onCanvasClick ? "crosshair" : "default" }}
     />
   );
 }
