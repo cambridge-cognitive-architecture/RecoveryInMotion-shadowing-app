@@ -7,75 +7,62 @@ import React, { useState, useRef, useEffect } from "react";
 // Edit the lists below to customise categories for your study.
 
 const EVENT_TYPES = [
-  // Task Activity categories — mapped to Stream B Table 4, sorted alphabetically
-  { id: "administrative_task",        label: "Admin",        color: "#B45309" },
-  { id: "break",                      label: "Break / Rest",               color: "#16A34A" },
-  { id: "direct_patient_care",        label: "Direct Patient Care",        color: "#2563EB" },
-  { id: "documentation",              label: "Documentation",              color: "#7C3AED" },
-  { id: "equipment_resource_search",  label: "Equipment / Resource Search",color: "#D97706" },
-  { id: "handover",                   label: "Handover / Briefing",        color: "#9333EA" },
-  { id: "medication_task",            label: "Medication Task",            color: "#0D9488" },
-  { id: "pager_phone_screen",         label: "Pager / Phone / Screen",     color: "#DC2626" },
-  { id: "staff_communication",        label: "Staff Communication",        color: "#0891B2" },
-  { id: "waiting",                    label: "Waiting",                    color: "#6B7280" },
+  { id: "documentation_admin",      label: "Documentation / Admin",      color: "#7C3AED" },
+  { id: "break",                    label: "Break / Rest",                color: "#16A34A" },
+  { id: "direct_patient_care",      label: "Direct Patient Care",         color: "#2563EB" },
+  { id: "handover",                 label: "Handover / Briefing",         color: "#9333EA" },
+  { id: "medication_task",          label: "Medication Task",             color: "#0D9488" },
+  { id: "pager_phone_screen",       label: "Pager / Phone / Screen",      color: "#DC2626" },
+  { id: "searching",                label: "Searching",                   color: "#D97706" },
+  { id: "staff_communication",      label: "Staff Communication",         color: "#0891B2" },
+  { id: "waiting",                  label: "Waiting",                     color: "#6B7280" },
 ];
 
-// Bodily action / posture states (logged as sub-type on each event)
+// Bodily action / posture — grouped for sidebar sub-headers
+// group: "stationary" | "moving" | "with_patient" | "carrying"
 const BODILY_ACTION_TYPES = [
-  { id: "crouching",               label: "Crouching / Reaching"   },
-  { id: "running",                  label: "Running"                },
-  { id: "sitting",                  label: "Sitting"               },
-  { id: "standing",                 label: "Standing"              },
-  { id: "walking",                  label: "Walking"               },
-  { id: "pushing_wheelchair",       label: "Pushing wheelchair"    },
-  { id: "pushing_bed",              label: "Pushing bed"           },
-  { id: "support_patient_walking",  label: "Supporting pt. walking"},
+  { id: "sitting",                  label: "Sitting",                   group: "stationary"  },
+  { id: "standing",                 label: "Standing",                  group: "stationary"  },
+  { id: "walking",                  label: "Walking",                   group: "moving"      },
+  { id: "running",                  label: "Running",                   group: "moving"      },
+  { id: "pushing_wheelchair",       label: "Pushing wheelchair",        group: "with_patient"},
+  { id: "pushing_bed",              label: "Pushing bed",               group: "with_patient"},
+  { id: "support_patient_walking",  label: "Supporting patient walking",group: "with_patient"},
+  { id: "carrying_light",           label: "Light",                     group: "carrying"    },
+  { id: "carrying_heavy",           label: "Heavy",                     group: "carrying"    },
 ];
 
-// Stress markers — grouped for panel navigation (H1–H4 cascade)
-// Each item has a group property for subgroup rendering
-const STRESS_CATEGORIES = [
-  { id: "spatial_conflict",             label: "Space Blocked"    },
-  { id: "spatial_disorientation",       label: "Disorientation"   },
-  { id: "equipment_not_where_expected", label: "Equip. Misplaced" },
-  { id: "interruption",                 label: "Interruption"     },
-  { id: "multitasking",                 label: "Multitasking"     },
-  { id: "noise_crowding",               label: "Noise / Crowding" },
-  { id: "role_conflict",                label: "Role Conflict"    },
-  { id: "time_pressure",                label: "Time Pressure"    },
+const BODILY_ACTION_GROUPS = [
+  { id: "stationary",   label: "Stationary"   },
+  { id: "moving",       label: "Moving"       },
+  { id: "with_patient", label: "With patient" },
+  { id: "carrying",     label: "Carrying"     },
 ];
 
-const STRESS_SUBGROUPS = [
-  { id: "spatial",      label: "Spatial" },
-  { id: "workflow",     label: "Workflow" },
-  { id: "environment",  label: "Environment" },
+// Environment flags — grouped by type
+// group: "spatial" | "auditory" | "operational"
+const ENVIRONMENT_FLAGS = [
+  { id: "crowding",           label: "Crowding",          group: "spatial"      },
+  { id: "buzzer",             label: "Buzzer",            group: "auditory"     },
+  { id: "red_phone",          label: "Red phone",         group: "auditory"     },
+  { id: "mobile_phone",       label: "Mobile phone",      group: "auditory"     },
+  { id: "interruption",       label: "Interruption",      group: "operational"  },
+  { id: "handover_underway",  label: "Handover underway", group: "operational"  },
+  { id: "equipment_broken",   label: "Equip. broken",     group: "operational"  },
+  { id: "maintenance_works",  label: "Maintenance/works", group: "operational"  },
 ];
 
-// Recovery / micro-restoration markers — grouped (H4 cascade)
-const RECOVERY_CATEGORIES = [
-  { id: "brief_humour",    label: "Brief Humour"   },
-  { id: "daylight_view",   label: "Daylight"       },
-  { id: "good_sightlines", label: "Good Sightlines"},
-  { id: "quiet_moment",    label: "Quiet Moment"   },
-  { id: "social_support",  label: "Social Support" },
+const ENVIRONMENT_GROUPS = [
+  { id: "spatial",     label: "Spatial"      },
+  { id: "auditory",    label: "Auditory"     },
+  { id: "operational", label: "Operational"  },
 ];
 
-const RECOVERY_SUBGROUPS = [
-  { id: "spatial",      label: "Spatial" },
-  { id: "environment",  label: "Environment" },
-  { id: "social",       label: "Social" },
-];
-
-// Contextual flags — factual environmental conditions, logged separately from stress/recovery
-const CONTEXTUAL_FLAGS = [
-  { id: "interruption",    label: "Interruption"      },
-  { id: "red_phone",       label: "Red phone"         },
-  { id: "crash_phone",     label: "Crash phone"       },
-  { id: "carrying",        label: "Carrying"          },
-  { id: "equipment_broken",   label: "Equip. broken"     },
-  { id: "handover_underway",  label: "Handover underway" },
-  { id: "maintenance_works",  label: "Maintenance / works"},
-  { id: "patient_complaint",  label: "Patient complaint" },
+// Patient state at moment of observation
+const PATIENT_STATE = [
+  { id: "calm",     label: "Calm"     },
+  { id: "agitated", label: "Agitated" },
+  { id: "acute",    label: "Acute"    },
 ];
 
 // Room density / people present
@@ -86,13 +73,6 @@ const PEOPLE_PRESENT = [
   { id: "small_team", label: "Small team (2–3)" },
   { id: "large_team", label: "Large team (4+)" },
   { id: "crowded", label: "Crowded space" },
-];
-
-// Patient acuity at moment of observation
-const PATIENT_ACUITY = [
-  { id: "low", label: "Low" },
-  { id: "moderate", label: "Moderate" },
-  { id: "high", label: "High" },
 ];
 
 // Participant roles — Addenbrooke's A&E staff
@@ -198,7 +178,7 @@ function buildEventRows(session, zones, events) {
     shift_type: session?.shiftType||"", departmental_status: session?.departmentalStatus||"",
     protocol_checked: !!(session?.protocolChecked),
     event_id: ev?.id||"", event_type: ev?.eventType||"",
-    bodily_action: ev?.bodilyAction||"", patient_acuity: ev?.patientAcuity||"",
+    bodily_action: ev?.bodilyAction||"", patient_state: ev?.patientState||"",
     start_time: ev?.startTime||"", end_time: ev?.endTime||"",
     duration_seconds: ev?.endTime ? secondsBetween(ev.startTime, ev.endTime) : "",
     zone_id: ev?.zoneId||"", zone_name: findZoneName(zones, ev?.zoneId),
@@ -738,28 +718,32 @@ function QuickMarkerPanel({ markers, setMarkers, activeEventId, activeEv, zones 
         Quick Markers {activeEv && <span style={{ color: "#059669", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>↳ linked</span>}
       </div>
 
-      {/* ── CONTEXTUAL FLAGS ── */}
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#B45309", fontFamily: "'DM Mono',monospace", marginBottom: 4, letterSpacing: "0.05em" }}>⚑ Context</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
-        {CONTEXTUAL_FLAGS.map(cat => (
-          <button key={cat.id} onClick={() => stampMarker("contextual", cat.id)}
-            style={{ padding: "5px 2px", border: "1.5px solid #FEF3C7", borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: "#FFFBEB", color: "#B45309", lineHeight: 1.2, textAlign: "center" }}
-            onMouseOver={e => { e.currentTarget.style.background = "#D97706"; e.currentTarget.style.color = "white"; }}
-            onMouseOut={e => { e.currentTarget.style.background = "#FFFBEB"; e.currentTarget.style.color = "#B45309"; }}>
-            {cat.label}
-          </button>
-        ))}
-      </div>
+      {/* ── ENVIRONMENT — grouped ── */}
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#B45309", fontFamily: "'DM Mono',monospace", marginBottom: 4, letterSpacing: "0.05em" }}>⚑ Environment</div>
+      {ENVIRONMENT_GROUPS.map(grp => (
+        <div key={grp.id} style={{ marginBottom: 4 }}>
+          <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase",
+            color: "#94A3B8", fontFamily: "'DM Mono',monospace", marginBottom: 2 }}>{grp.label}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
+            {ENVIRONMENT_FLAGS.filter(f => f.group === grp.id).map(cat => (
+              <button key={cat.id} onClick={() => stampMarker("contextual", cat.id)}
+                style={{ padding: "5px 2px", border: "1.5px solid #FEF3C7", borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: "#FFFBEB", color: "#B45309", lineHeight: 1.2, textAlign: "center" }}
+                onMouseOver={e => { e.currentTarget.style.background = "#D97706"; e.currentTarget.style.color = "white"; }}
+                onMouseOut={e => { e.currentTarget.style.background = "#FFFBEB"; e.currentTarget.style.color = "#B45309"; }}>
+                {cat.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
 
       {/* ── Recent log ── */}
       {markers.length > 0 && (
         <div style={{ marginTop: 8, borderTop: "1px solid #F1F5F9", paddingTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
           {markers.slice(0, 4).map(m => (
             <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, fontFamily: "'DM Mono',monospace" }}>
-              <span style={{ color: m.markerType === "stress" ? "#DC2626" : m.markerType === "contextual" ? "#B45309" : "#059669" }}>
-                {m.markerType === "stress" ? "⚡" : m.markerType === "contextual" ? "⚑" : "🌿"}
-              </span>
-              <span style={{ color: "#475569", flex: 1 }}>{[...STRESS_CATEGORIES, ...RECOVERY_CATEGORIES, ...CONTEXTUAL_FLAGS].find(c => c.id === m.category)?.label || m.category}</span>
+              <span style={{ color: "#B45309" }}>⚑</span>
+              <span style={{ color: "#475569", flex: 1 }}>{ENVIRONMENT_FLAGS.find(c => c.id === m.category)?.label || m.category}</span>
               <span style={{ color: "#CBD5E1" }}>{formatClock(m.timestamp)}</span>
             </div>
           ))}
@@ -855,7 +839,7 @@ function ZoneLiveTab({ session, zones, events, setEvents, markers, setMarkers, f
   const [eventType, setEventType] = useState("");
   const [peoplePresent, setPeoplePresent] = useState("");
   const [bodilyAction, setBodilyAction] = useState("");
-  const [patientAcuity, setPatientAcuity] = useState("");
+  const [patientState, setPatientState] = useState("");
   const [interruptionFlag, setInterruptionFlag] = useState(false);
 
   const activeEv = events.find(e => e.id === activeEventId && !e.endTime);
@@ -864,7 +848,7 @@ function ZoneLiveTab({ session, zones, events, setEvents, markers, setMarkers, f
   function handleCanvasClick(pos) {
     if (!awaitingPlace) return;
     const autoZone = detectZone(zones, pos.x, pos.y);
-    const ev = { id: "E-" + Date.now(), eventType, peoplePresent, bodilyAction, patientAcuity, interruptionFlag, zoneId: autoZone, startTime: nowIso(), x: pos.x, y: pos.y };
+    const ev = { id: "E-" + Date.now(), eventType, peoplePresent, bodilyAction, patientState, interruptionFlag, zoneId: autoZone, startTime: nowIso(), x: pos.x, y: pos.y };
     setEvents(e => [ev, ...e]);
     setActiveEventId(ev.id);
     setAwaitingPlace(false);
@@ -907,20 +891,25 @@ function ZoneLiveTab({ session, zones, events, setEvents, markers, setMarkers, f
               ))}
             </div>
             <Field label="People present"><Select value={peoplePresent} onChange={setPeoplePresent} options={PEOPLE_PRESENT} /></Field>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748B", fontFamily: "'DM Mono',monospace", marginBottom: 5 }}>Bodily action</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748B", fontFamily: "'DM Mono',monospace", marginBottom: 5 }}>Posture / Mobilisation</div>
+            {BODILY_ACTION_GROUPS.map(grp => (
+              <div key={grp.id} style={{ marginBottom: 5 }}>
+                <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "#94A3B8", fontFamily: "'DM Mono',monospace", marginBottom: 2 }}>{grp.label}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3 }}>
+                  {BODILY_ACTION_TYPES.filter(a => a.group === grp.id).map(a => (
+                    <button key={a.id} onClick={() => setBodilyAction(a.id)}
+                      style={{ padding: "5px 3px", border: "1.5px solid " + (bodilyAction === a.id ? "#7C3AED" : "#E2E8F0"), borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: bodilyAction === a.id ? "#EDE9FE" : "white", color: bodilyAction === a.id ? "#7C3AED" : "#94A3B8", textAlign: "center" }}>
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748B", fontFamily: "'DM Mono',monospace", marginBottom: 5 }}>Patient State</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, marginBottom: 10 }}>
-              {BODILY_ACTION_TYPES.map(a => (
-                <button key={a.id} onClick={() => setBodilyAction(a.id)}
-                  style={{ padding: "5px 3px", border: "1.5px solid " + (bodilyAction === a.id ? "#7C3AED" : "#E2E8F0"), borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: bodilyAction === a.id ? "#EDE9FE" : "white", color: bodilyAction === a.id ? "#7C3AED" : "#94A3B8", textAlign: "center" }}>
-                  {a.label}
-                </button>
-              ))}
-            </div>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748B", fontFamily: "'DM Mono',monospace", marginBottom: 5 }}>Patient acuity</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 10 }}>
-              {PATIENT_ACUITY.map(a => (
-                <button key={a.id} onClick={() => setPatientAcuity(a.id)}
-                  style={{ padding: "5px 3px", border: "1.5px solid " + (patientAcuity === a.id ? "#0891B2" : "#E2E8F0"), borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: patientAcuity === a.id ? "#E0F2FE" : "white", color: patientAcuity === a.id ? "#0891B2" : "#94A3B8", textAlign: "center" }}>
+              {PATIENT_STATE.map(a => (
+                <button key={a.id} onClick={() => setPatientState(a.id)}
+                  style={{ padding: "5px 3px", border: "1.5px solid " + (patientState === a.id ? "#0891B2" : "#E2E8F0"), borderRadius: 5, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", background: patientState === a.id ? "#E0F2FE" : "white", color: patientState === a.id ? "#0891B2" : "#94A3B8", textAlign: "center" }}>
                   {a.label}
                 </button>
               ))}
@@ -1063,7 +1052,7 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
   const [activeEventId, setActiveEventId] = useState(null);
   const [eventType, setEventType] = useState("");
   const [bodilyAction, setBodilyAction] = useState("");
-  const [patientAcuity, setPatientAcuity] = useState("");
+  const [patientState, setPatientState] = useState("");
   const [history, setHistory] = useState([]); // [{type:"event"|"marker", id, label, icon}]
 
   const activeEv = events.find(e => e.id === activeEventId && !e.endTime);
@@ -1092,25 +1081,25 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
     if (activeEventId) {
       setEvents(evs => evs.map(ev => ev.id === activeEventId ? { ...ev, endTime: nowIso() } : ev));
     }
-    const ev = { id: "E-" + Date.now(), eventType, bodilyAction, patientAcuity, zoneId: autoZone, startTime: nowIso(), x: pos.x, y: pos.y };
+    const ev = { id: "E-" + Date.now(), eventType, bodilyAction, patientState, zoneId: autoZone, startTime: nowIso(), x: pos.x, y: pos.y };
     setEvents(e => [ev, ...e]);
     setActiveEventId(ev.id);
     const actLabel = EVENT_TYPES.find(e => e.id === eventType)?.label || "Event";
     const postLabel = BODILY_ACTION_TYPES.find(a => a.id === bodilyAction)?.label || null;
-    const acuLabel = PATIENT_ACUITY.find(a => a.id === patientAcuity)?.label || null;
-    pushHistory("event", ev.id, actLabel, "●", postLabel, acuLabel);
+    const stateLabel = PATIENT_STATE.find(a => a.id === patientState)?.label || null;
+    pushHistory("event", ev.id, actLabel, "●", postLabel, stateLabel);
   }
 
   function logActivityHere() {
     if (!activeEv) return;
     setEvents(evs => evs.map(ev => ev.id === activeEventId ? { ...ev, endTime: nowIso() } : ev));
-    const ev = { id: "E-" + Date.now(), eventType, bodilyAction, patientAcuity, zoneId: activeEv.zoneId, startTime: nowIso(), x: activeEv.x, y: activeEv.y };
+    const ev = { id: "E-" + Date.now(), eventType, bodilyAction, patientState, zoneId: activeEv.zoneId, startTime: nowIso(), x: activeEv.x, y: activeEv.y };
     setEvents(e => [ev, ...e]);
     setActiveEventId(ev.id);
     const actLabel = EVENT_TYPES.find(e => e.id === eventType)?.label || "Event";
     const postLabel = BODILY_ACTION_TYPES.find(a => a.id === bodilyAction)?.label || null;
-    const acuLabel = PATIENT_ACUITY.find(a => a.id === patientAcuity)?.label || null;
-    pushHistory("event", ev.id, actLabel, "●", postLabel, acuLabel);
+    const stateLabel = PATIENT_STATE.find(a => a.id === patientState)?.label || null;
+    pushHistory("event", ev.id, actLabel, "●", postLabel, stateLabel);
   }
 
   function stopTracking() {
@@ -1132,7 +1121,7 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
       linkedEventId: activeEventId || "",
     };
     setMarkers(ms => [marker, ...ms]);
-    const allCats = [...STRESS_CATEGORIES, ...RECOVERY_CATEGORIES, ...CONTEXTUAL_FLAGS];
+    const allCats = [...ENVIRONMENT_FLAGS];
     const catLabel = allCats.find(c => c.id === category)?.label || category;
     const icon = markerType === "stress" ? "⚡" : markerType === "contextual" ? "⚑" : "🌿";
     pushHistory("marker", marker.id, catLabel, icon);
@@ -1284,23 +1273,29 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
             ))}
           </div>
 
-          {/* POSTURE / MOBILISATION */}
+          {/* POSTURE / MOBILISATION — grouped with sub-headers */}
           {sideHead("Posture / Mobilisation", "#475569")}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
-            {BODILY_ACTION_TYPES.map(a => (
-              <button key={a.id} onClick={() => setBodilyAction(a.id)}
-                style={{ ...pill(bodilyAction === a.id, "#7C3AED", "#EDE9FE"), padding: "6px 2px", fontSize: 10 }}>
-                {a.label}
-              </button>
-            ))}
-          </div>
+          {BODILY_ACTION_GROUPS.map(grp => (
+            <div key={grp.id} style={{ marginBottom: 5 }}>
+              <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase",
+                color: "#94A3B8", fontFamily: "'DM Mono',monospace", marginBottom: 2 }}>{grp.label}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 3 }}>
+                {BODILY_ACTION_TYPES.filter(a => a.group === grp.id).map(a => (
+                  <button key={a.id} onClick={() => setBodilyAction(a.id)}
+                    style={{ ...pill(bodilyAction === a.id, "#7C3AED", "#EDE9FE"), padding: "5px 2px", fontSize: 10 }}>
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
 
-          {/* ACUITY */}
-          {sideHead("Acuity", "#475569")}
+          {/* PATIENT STATE */}
+          {sideHead("Patient State", "#475569")}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
-            {PATIENT_ACUITY.map(a => (
-              <button key={a.id} onClick={() => setPatientAcuity(a.id)}
-                style={{ ...pill(patientAcuity === a.id, "#0891B2", "#E0F2FE"), padding: "6px 2px", fontSize: 11 }}>
+            {PATIENT_STATE.map(a => (
+              <button key={a.id} onClick={() => setPatientState(a.id)}
+                style={{ ...pill(patientState === a.id, "#0891B2", "#E0F2FE"), padding: "6px 2px", fontSize: 11 }}>
                 {a.label}
               </button>
             ))}
@@ -1327,24 +1322,30 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
           {/* DIVIDER */}
           <div style={{ borderTop: "1.5px solid #F1F5F9", margin: "7px 0" }} />
 
-          {/* ⚑ CONTEXT */}
+          {/* ⚑ ENVIRONMENT — grouped */}
           <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", fontFamily: "'DM Mono',monospace",
             letterSpacing: "0.05em", marginBottom: 5 }}>
-            ⚑ Context
+            ⚑ Environment
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, marginBottom: 4 }}>
-            {CONTEXTUAL_FLAGS.map(cat => (
-              <button key={cat.id} onClick={() => stampMarker("contextual", cat.id)}
-                style={{ padding: "5px 3px", border: "1.5px solid #FEF3C7", borderRadius: 6,
-                  cursor: "pointer", fontSize: 10, fontWeight: 600,
-                  fontFamily: "'DM Sans',sans-serif", background: "#FFFBEB", color: "#B45309",
-                  lineHeight: 1.2, textAlign: "center" }}
-                onMouseOver={e => { e.currentTarget.style.background="#D97706"; e.currentTarget.style.color="white"; }}
-                onMouseOut={e => { e.currentTarget.style.background="#FFFBEB"; e.currentTarget.style.color="#B45309"; }}>
-                {cat.label}
-              </button>
-            ))}
-          </div>
+          {ENVIRONMENT_GROUPS.map(grp => (
+            <div key={grp.id} style={{ marginBottom: 5 }}>
+              <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase",
+                color: "#94A3B8", fontFamily: "'DM Mono',monospace", marginBottom: 2 }}>{grp.label}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 3 }}>
+                {ENVIRONMENT_FLAGS.filter(f => f.group === grp.id).map(cat => (
+                  <button key={cat.id} onClick={() => stampMarker("contextual", cat.id)}
+                    style={{ padding: "5px 3px", border: "1.5px solid #FEF3C7", borderRadius: 6,
+                      cursor: "pointer", fontSize: 10, fontWeight: 600,
+                      fontFamily: "'DM Sans',sans-serif", background: "#FFFBEB", color: "#B45309",
+                      lineHeight: 1.2, textAlign: "center" }}
+                    onMouseOver={e => { e.currentTarget.style.background="#D97706"; e.currentTarget.style.color="white"; }}
+                    onMouseOut={e => { e.currentTarget.style.background="#FFFBEB"; e.currentTarget.style.color="#B45309"; }}>
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
 
         </div>{/* end scrollable body */}
 
@@ -1445,7 +1446,7 @@ function ReviewTab({ session, zones, events, markers }) {
 
       <SectionHeader>CSV Schema</SectionHeader>
       {[
-        { file:"events.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · first_language · seniority_level · clinical_experience · shift_type · departmental_status · protocol_checked · event_id · event_type · bodily_action · patient_acuity · start_time · end_time · duration_seconds · zone_id · zone_name · x_coord · y_coord · people_present · interruption_flag · interruption_type · note" },
+        { file:"events.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · first_language · seniority_level · clinical_experience · shift_type · departmental_status · protocol_checked · event_id · event_type · bodily_action · patient_state · start_time · end_time · duration_seconds · zone_id · zone_name · x_coord · y_coord · people_present · interruption_flag · interruption_type · note" },
         { file:"markers.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · first_language · seniority_level · clinical_experience · shift_type · departmental_status · marker_id · marker_type (stress / recovery / contextual) · category · intensity_1_5 · timestamp · zone_id · zone_name · x_coord · y_coord · linked_event_id" },
       ].map(s => (
         <div key={s.file} style={{ background:"#F8FAFC", border:"1.5px solid #E2E8F0", borderRadius:7, padding:"8px 11px", marginBottom:6 }}>
