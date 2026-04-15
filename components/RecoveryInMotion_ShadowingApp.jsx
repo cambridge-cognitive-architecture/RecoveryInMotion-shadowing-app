@@ -309,11 +309,16 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
 
   useEffect(() => {
     if (!imageUrl) { setImgLoaded(false); setCanvasDims({ width: 1000, height: 600 }); return; }
+    setImgLoaded(false);
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
       setCanvasDims({ width: img.naturalWidth, height: img.naturalHeight });
       setImgLoaded(true);
+    };
+    img.onerror = () => {
+      console.error("Floorplan image failed to load");
+      setImgLoaded(false);
     };
     img.src = imageUrl;
   }, [imageUrl]);
@@ -562,7 +567,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
       {/* ── TOP STRIP: session details horizontally ── */}
       <div style={{ background:"white", border:"1.5px solid #E2E8F0", borderRadius:10, padding:"13px 16px" }}>
         <SectionHeader>Session Details</SectionHeader>
-        <div style={{ display:"grid", gridTemplateColumns:"180px 160px 1fr 1fr 160px 160px", gap:12, alignItems:"end" }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 140px 1fr 1fr 150px 150px", gap:12, alignItems:"end" }}>
           <Field label="Date"><Input value={session.date} onChange={v=>updateSession("date",v)} type="date" /></Field>
           <Field label="Observer ID"><Input value={session.observerId} onChange={v=>updateSession("observerId",v)} placeholder="OBS-01" /></Field>
           <Field label="Hospital"><Input value={study.hospital} onChange={v=>updateStudy("hospital",v)} placeholder="Trust / Hospital" /></Field>
@@ -635,7 +640,13 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
             )}
           </div>
 
-          <div style={{ border:"2px solid " + (drawingZone ? "#F59E0B" : "#E2E8F0"), borderRadius:12, overflow:"hidden", lineHeight:0, alignSelf:"start" }}>
+          <div style={{ border:"2px solid " + (drawingZone ? "#F59E0B" : "#E2E8F0"), borderRadius:12, minHeight:200, background:"#F8FAFC", alignSelf:"start", position:"relative" }}>
+            {floorplanUrl && !completedPoly && !drawingZone && zones.length === 0 && (
+              <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
+                fontSize:11, color:"#94A3B8", fontFamily:"'DM Mono',monospace", pointerEvents:"none" }}>
+                Loading floorplan…
+              </div>
+            )}
             <FloorplanCanvas
               imageUrl={floorplanUrl} zones={zones}
               drawingMode={drawingZone} draftPoints={draftPoints} hoverPoint={hoverPoint}
