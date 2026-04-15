@@ -447,7 +447,15 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
       onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
       onMouseMove={handleMouseMove}
       onMouseLeave={onCanvasMouseLeave}
-      style={{ width:"100%", maxWidth:maxWidth, height:"auto", maxHeight:height, borderRadius:10, display:"block", cursor: onCanvasClick ? "crosshair" : "default" }}
+      style={{
+        display: "block",
+        width: "100%",
+        height: "auto",
+        maxHeight: height + "px",
+        borderRadius: 10,
+        cursor: onCanvasClick ? "crosshair" : "default",
+        aspectRatio: canvasDims.width + " / " + canvasDims.height,
+      }}
     />
   );
 }
@@ -978,12 +986,14 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick, h
 
   useEffect(() => {
     if (!imageUrl) { setImgLoaded(false); return; }
+    setImgLoaded(false);
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
       setCanvasDims({ width: img.naturalWidth, height: img.naturalHeight });
       setImgLoaded(true);
     };
+    img.onerror = () => { console.error("ShadowingCanvas: image failed to load"); };
     img.src = imageUrl;
   }, [imageUrl]);
 
@@ -1075,7 +1085,14 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick, h
   return (
     <canvas ref={canvasRef} width={canvasDims.width} height={canvasDims.height}
       onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
-      style={{ width: "100%", height: "auto", maxHeight: "100%", display: "block", cursor: "crosshair" }}
+      style={{
+        display: "block",
+        width: "100%",
+        height: "auto",
+        maxHeight: "100%",
+        cursor: "crosshair",
+        aspectRatio: canvasDims.width + " / " + canvasDims.height,
+      }}
     />
   );
 }
