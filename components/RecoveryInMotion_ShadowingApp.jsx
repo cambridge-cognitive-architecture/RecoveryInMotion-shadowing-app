@@ -301,164 +301,119 @@ function StatCard({ label, value, color }) {
 
 // ─── FloorplanCanvas ───────────────────────────────────────────────────────────
 
-function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], hoverPoint=null, onCanvasClick, onCanvasMouseMove, onCanvasMouseLeave, events=[], markers=[], pendingPos=null, height=480, previewPoly=null }) {
-  const canvasRef = useRef(null);
-  const imgRef = useRef(null);
-  const [imgLoaded, setImgLoaded] = useState(false);
-  const [canvasDims, setCanvasDims] = useState({ width: 1000, height: 600 });
 
+function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], hoverPoint=null, onCanvasClick, onCanvasMouseMove, onCanvasMouseLeave, events=[], markers=[], pendingPos=null, height=480, previewPoly=null }) {
+  const wrapRef = useRef(null);
+  const [dims, setDims] = useState({ w: 1000, h: 600 }); // native image dims
+  const [imgReady, setImgReady] = useState(false);
+
+  // Load image to get native dimensions for SVG coordinate space
   useEffect(() => {
-    if (!imageUrl) { setImgLoaded(false); setCanvasDims({ width: 1000, height: 600 }); return; }
-    setImgLoaded(false);
+    if (!imageUrl) { setImgReady(false); setDims({ w: 1000, h: 600 }); return; }
+    setImgReady(false);
     const img = new Image();
-    img.onload = () => {
-      imgRef.current = img;
-      setCanvasDims({ width: img.naturalWidth, height: img.naturalHeight });
-      setImgLoaded(true);
-    };
-    img.onerror = () => {
-      console.error("Floorplan image failed to load");
-      setImgLoaded(false);
-    };
+    img.onload = () => { setDims({ w: img.naturalWidth, h: img.naturalHeight }); setImgReady(true); };
+    img.onerror = () => console.error("Floorplan: image failed to load");
     img.src = imageUrl;
   }, [imageUrl]);
 
-  // Constrain width so the canvas never stretches beyond its natural aspect ratio
-  const aspectRatio = canvasDims.width / canvasDims.height;
-  const maxWidth = Math.round(height * aspectRatio);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Background
-    if (imageUrl && imgRef.current && imgLoaded) {
-      ctx.drawImage(imgRef.current, 0, 0, canvas.width, canvas.height);
-    } else {
-      ctx.fillStyle = "#F1F5F9";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      // Grid lines
-      ctx.strokeStyle = "#E2E8F0"; ctx.lineWidth = 1;
-      for (let x = 0; x < canvas.width; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
-      for (let y = 0; y < canvas.height; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
-      ctx.fillStyle = "#CBD5E1"; ctx.font = "13px DM Mono,monospace"; ctx.textAlign = "center";
-      ctx.fillText("Upload a floorplan image in the Setup tab", canvas.width/2, canvas.height/2 - 10);
-      ctx.fillText("then draw zones by clicking on it", canvas.width/2, canvas.height/2 + 10);
-      ctx.textAlign = "left";
-    }
-
-    // Completed zones
-    zones.forEach((zone, idx) => {
-      if (!zone.points || zone.points.length < 2) return;
-      const color = zoneColor(zone, idx);
-      ctx.beginPath();
-      ctx.moveTo(zone.points[0].x, zone.points[0].y);
-      zone.points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
-      ctx.closePath();
-      ctx.fillStyle = color + "30"; ctx.fill();
-      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([]); ctx.stroke();
-      // Label
-      const c = polygonCentroid(zone.points);
-      ctx.font = "bold 11px DM Mono,monospace"; ctx.textAlign = "center";
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      const tw = ctx.measureText(zone.name).width;
-      ctx.fillRect(c.x - tw/2 - 4, c.y - 11, tw + 8, 16);
-      ctx.fillStyle = color; ctx.fillText(zone.name, c.x, c.y); ctx.textAlign = "left";
-      // Vertices
-      zone.points.forEach(p => { ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fillStyle=color; ctx.fill(); });
-    });
-
-    // Preview polygon (completed but not yet named — shown in amber)
-    if (previewPoly && previewPoly.length >= 3) {
-      ctx.beginPath();
-      ctx.moveTo(previewPoly[0].x, previewPoly[0].y);
-      previewPoly.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
-      ctx.closePath();
-      ctx.fillStyle = "#F59E0B30"; ctx.fill();
-      ctx.strokeStyle = "#F59E0B"; ctx.lineWidth = Math.max(2, 2 * (canvasDims.width / 1000));
-      ctx.setLineDash([]); ctx.stroke();
-    }
-
-    // Draft polygon
-    if (drawingMode && draftPoints.length > 0) {
-      // Scale-aware sizes: lineWidth and snap threshold in canvas pixels
-      const scale = canvasDims.width / 1000; // relative to a 1000px reference
-      const lw = Math.max(2, 2 * scale);
-      const snapThreshold = 12 * scale;
-      const dotR = Math.max(6, 6 * scale);
-      const snapRingR = Math.max(14, 14 * scale);
-
-      ctx.strokeStyle = "#F59E0B"; ctx.lineWidth = lw; ctx.setLineDash([8 * scale, 5 * scale]);
-      ctx.beginPath(); ctx.moveTo(draftPoints[0].x, draftPoints[0].y);
-      draftPoints.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
-      if (hoverPoint) ctx.lineTo(hoverPoint.x, hoverPoint.y);
-      ctx.stroke(); ctx.setLineDash([]);
-      draftPoints.forEach((p, i) => {
-        ctx.beginPath(); ctx.arc(p.x, p.y, i===0 ? dotR : dotR * 0.6, 0, Math.PI*2);
-        ctx.fillStyle = i===0?"#F59E0B":"#FCD34D"; ctx.strokeStyle="white"; ctx.lineWidth=lw; ctx.fill(); ctx.stroke();
-      });
-      if (draftPoints.length >= 3 && hoverPoint) {
-        const fp = draftPoints[0];
-        if (Math.hypot(hoverPoint.x-fp.x, hoverPoint.y-fp.y) < snapThreshold) {
-          ctx.beginPath(); ctx.arc(fp.x,fp.y,snapRingR,0,Math.PI*2); ctx.strokeStyle="#F59E0B"; ctx.lineWidth=lw+1; ctx.stroke();
-        }
-      }
-    }
-
-    // Events
-    events.forEach(ev => {
-      const color = getEventColor((ev.eventTypes||[])[0] || ev.eventType);
-      ctx.beginPath(); ctx.arc(ev.x, ev.y, 6, 0, Math.PI*2);
-      ctx.fillStyle = ev.endTime ? color+"70" : color; ctx.fill();
-      ctx.strokeStyle = "white"; ctx.lineWidth = 1.5; ctx.stroke();
-    });
-
-    // Markers (triangles)
-    markers.forEach(m => {
-      const color = m.markerType==="stress" ? "#DC2626" : "#059669";
-      ctx.beginPath(); ctx.moveTo(m.x, m.y-7); ctx.lineTo(m.x+6, m.y+5); ctx.lineTo(m.x-6, m.y+5); ctx.closePath();
-      ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle="white"; ctx.lineWidth=1.5; ctx.stroke();
-    });
-
-    // Pending ring
-    if (pendingPos) {
-      ctx.beginPath(); ctx.arc(pendingPos.x, pendingPos.y, 10, 0, Math.PI*2);
-      ctx.strokeStyle="#2563EB"; ctx.lineWidth=2; ctx.stroke();
-      ctx.fillStyle="rgba(37,99,235,0.15)"; ctx.fill();
-    }
-  }, [imageUrl, imgLoaded, zones, drawingMode, draftPoints, hoverPoint, events, markers, pendingPos, canvasDims, previewPoly]);
-
+  // Convert a pointer event to SVG coordinate space
   function getPos(e) {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const sx = canvasRef.current.width / rect.width;
-    const sy = canvasRef.current.height / rect.height;
+    const el = wrapRef.current;
+    if (!el) return { x: 0, y: 0, scale: 1 };
+    const rect = el.getBoundingClientRect();
+    const sx = dims.w / rect.width;
+    const sy = dims.h / rect.height;
     return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy), scale: sx };
   }
 
-  // Always wire mousemove so React doesn't drop events when drawingMode toggles
-  function handleMouseMove(e) {
-    if (onCanvasMouseMove) onCanvasMouseMove(getPos(e));
-  }
+  const scale = dims.w / 1000;
+  const snapThreshold = 12 * scale;
+  const dotR = 6 * scale;
+  const lw = 2 * scale;
+
+  // Build draft path string
+  const draftPath = draftPoints.length > 0
+    ? "M " + draftPoints.map(p => `${p.x},${p.y}`).join(" L ") + (hoverPoint ? ` L ${hoverPoint.x},${hoverPoint.y}` : "")
+    : "";
+
+  const nearFirst = drawingMode && draftPoints.length >= 3 && hoverPoint &&
+    Math.hypot(hoverPoint.x - draftPoints[0].x, hoverPoint.y - draftPoints[0].y) < snapThreshold;
 
   return (
-    <canvas ref={canvasRef} width={canvasDims.width} height={canvasDims.height}
+    <div ref={wrapRef}
+      style={{ position: "relative", width: "100%", maxHeight: height, lineHeight: 0, userSelect: "none", cursor: onCanvasClick ? "crosshair" : "default", borderRadius: 10, overflow: "hidden", background: "#F1F5F9" }}
       onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
-      onMouseMove={handleMouseMove}
+      onMouseMove={e => { if (onCanvasMouseMove) onCanvasMouseMove(getPos(e)); }}
       onMouseLeave={onCanvasMouseLeave}
-      style={{
-        display: "block",
-        width: "100%",
-        height: "auto",
-        maxHeight: height + "px",
-        borderRadius: 10,
-        cursor: onCanvasClick ? "crosshair" : "default",
-        aspectRatio: canvasDims.width + " / " + canvasDims.height,
-      }}
-    />
+    >
+      {/* Floorplan image */}
+      {imageUrl
+        ? <img src={imageUrl} alt="Floorplan" style={{ width: "100%", height: "auto", maxHeight: height, display: "block", borderRadius: 10 }} />
+        : <div style={{ width: "100%", height: height, background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 10 }}>
+            <span style={{ fontSize: 13, color: "#CBD5E1", fontFamily: "'DM Mono',monospace", textAlign: "center" }}>Upload a floorplan image<br/>then draw zones by clicking on it</span>
+          </div>
+      }
+
+      {/* SVG overlay — sits exactly on top of the image */}
+      <svg
+        viewBox={`0 0 ${dims.w} ${dims.h}`}
+        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none" }}
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* Completed zones */}
+        {zones.map((zone, idx) => {
+          if (!zone.points || zone.points.length < 2) return null;
+          const color = zoneColor(zone, idx);
+          const pts = zone.points.map(p => `${p.x},${p.y}`).join(" ");
+          const c = polygonCentroid(zone.points);
+          return (
+            <g key={zone.id}>
+              <polygon points={pts} fill={color + "30"} stroke={color} strokeWidth={lw * 1.5} />
+              <rect x={c.x - 40} y={c.y - 9} width={80} height={16} rx={3} fill="rgba(255,255,255,0.88)" />
+              <text x={c.x} y={c.y + 4} textAnchor="middle" fontSize={10 * scale} fontWeight="bold" fontFamily="DM Mono,monospace" fill={color}>{zone.name}</text>
+              {zone.points.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={dotR * 0.5} fill={color} />)}
+            </g>
+          );
+        })}
+
+        {/* Preview polygon (awaiting name) */}
+        {previewPoly && previewPoly.length >= 3 && (
+          <polygon points={previewPoly.map(p => `${p.x},${p.y}`).join(" ")} fill="#F59E0B30" stroke="#F59E0B" strokeWidth={lw} />
+        )}
+
+        {/* Draft polygon while drawing */}
+        {drawingMode && draftPoints.length > 0 && (
+          <g>
+            <path d={draftPath} fill="none" stroke="#F59E0B" strokeWidth={lw} strokeDasharray={`${8*scale} ${5*scale}`} />
+            {draftPoints.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r={i === 0 ? dotR : dotR * 0.7}
+                fill={i === 0 ? "#F59E0B" : "#FCD34D"} stroke="white" strokeWidth={lw} />
+            ))}
+            {nearFirst && <circle cx={draftPoints[0].x} cy={draftPoints[0].y} r={snapThreshold} fill="none" stroke="#F59E0B" strokeWidth={lw + 1} />}
+          </g>
+        )}
+
+        {/* Events */}
+        {events.map(ev => {
+          const color = getEventColor((ev.eventTypes||[])[0] || ev.eventType);
+          return <circle key={ev.id} cx={ev.x} cy={ev.y} r={6 * scale} fill={ev.endTime ? color + "70" : color} stroke="white" strokeWidth={1.5 * scale} />;
+        })}
+
+        {/* Markers (triangles) */}
+        {markers.map(m => {
+          const color = m.markerType === "stress" ? "#DC2626" : "#059669";
+          const s = 7 * scale;
+          return <polygon key={m.id} points={`${m.x},${m.y - s} ${m.x + s * 0.85},${m.y + s * 0.7} ${m.x - s * 0.85},${m.y + s * 0.7}`} fill={color} stroke="white" strokeWidth={1.5 * scale} />;
+        })}
+
+        {/* Pending ring */}
+        {pendingPos && <circle cx={pendingPos.x} cy={pendingPos.y} r={10 * scale} stroke="#2563EB" strokeWidth={2 * scale} fill="rgba(37,99,235,0.15)" />}
+      </svg>
+    </div>
   );
 }
+
 
 // ─── Setup Tab ─────────────────────────────────────────────────────────────────
 
@@ -977,123 +932,93 @@ function ZoneLiveTab({ session, zones, events, setEvents, markers, setMarkers, f
 
 // ─── SHADOWING Live Tab ────────────────────────────────────────────────────────
 
-// Extended canvas that also draws a path between shadowing waypoints
-function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick, height = 530 }) {
-  const canvasRef = useRef(null);
-  const imgRef = useRef(null);
-  const [imgLoaded, setImgLoaded] = useState(false);
-  const [canvasDims, setCanvasDims] = useState({ width: 1000, height: 600 });
+function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick }) {
+  const wrapRef = useRef(null);
+  const [dims, setDims] = useState({ w: 1000, h: 600 });
 
   useEffect(() => {
-    if (!imageUrl) { setImgLoaded(false); return; }
-    setImgLoaded(false);
+    if (!imageUrl) { setDims({ w: 1000, h: 600 }); return; }
     const img = new Image();
-    img.onload = () => {
-      imgRef.current = img;
-      setCanvasDims({ width: img.naturalWidth, height: img.naturalHeight });
-      setImgLoaded(true);
-    };
-    img.onerror = () => { console.error("ShadowingCanvas: image failed to load"); };
+    img.onload = () => setDims({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => console.error("ShadowingCanvas: image failed to load");
     img.src = imageUrl;
   }, [imageUrl]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Background
-    if (imageUrl && imgRef.current && imgLoaded) {
-      ctx.drawImage(imgRef.current, 0, 0, canvas.width, canvas.height);
-    } else {
-      ctx.fillStyle = "#F1F5F9"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      for (let x = 0; x < canvas.width; x += 40) { ctx.beginPath(); ctx.strokeStyle = "#E2E8F0"; ctx.lineWidth = 1; ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
-      for (let y = 0; y < canvas.height; y += 40) { ctx.beginPath(); ctx.strokeStyle = "#E2E8F0"; ctx.lineWidth = 1; ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
-      ctx.fillStyle = "#CBD5E1"; ctx.font = "13px DM Mono,monospace"; ctx.textAlign = "center";
-      ctx.fillText("Upload a floorplan in Setup", canvas.width / 2, canvas.height / 2);
-      ctx.textAlign = "left";
-    }
-
-    // Zones
-    zones.forEach((zone, idx) => {
-      if (!zone.points || zone.points.length < 2) return;
-      const color = zoneColor(zone, idx);
-      ctx.beginPath(); ctx.moveTo(zone.points[0].x, zone.points[0].y);
-      zone.points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
-      ctx.closePath(); ctx.fillStyle = color + "28"; ctx.fill();
-      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([]); ctx.stroke();
-      const c = polygonCentroid(zone.points);
-      ctx.font = "bold 11px DM Mono,monospace"; ctx.textAlign = "center";
-      const tw = ctx.measureText(zone.name).width;
-      ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.fillRect(c.x - tw / 2 - 4, c.y - 11, tw + 8, 16);
-      ctx.fillStyle = color; ctx.fillText(zone.name, c.x, c.y); ctx.textAlign = "left";
-    });
-
-    // Path between waypoints
-    if (waypoints.length >= 2) {
-      // Shadow
-      ctx.beginPath(); ctx.moveTo(waypoints[0].x, waypoints[0].y);
-      waypoints.slice(1).forEach(w => ctx.lineTo(w.x, w.y));
-      ctx.strokeStyle = "rgba(0,0,0,0.12)"; ctx.lineWidth = 6; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.setLineDash([]); ctx.stroke();
-      // Main path — gradient-like via segments
-      for (let i = 0; i < waypoints.length - 1; i++) {
-        const t = i / (waypoints.length - 1);
-        const r = Math.round(37 + t * (124 - 37));
-        const g = Math.round(99 + t * (58 - 99));
-        const b = Math.round(235 + t * (189 - 235));
-        ctx.beginPath(); ctx.moveTo(waypoints[i].x, waypoints[i].y); ctx.lineTo(waypoints[i + 1].x, waypoints[i + 1].y);
-        ctx.strokeStyle = `rgb(${r},${g},${b})`; ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.stroke();
-      }
-      // Direction arrows every ~3 waypoints
-      for (let i = 1; i < waypoints.length; i += Math.max(1, Math.floor(waypoints.length / 6))) {
-        const prev = waypoints[i - 1], curr = waypoints[i];
-        const angle = Math.atan2(curr.y - prev.y, curr.x - prev.x);
-        const mx = (prev.x + curr.x) / 2, my = (prev.y + curr.y) / 2;
-        ctx.save(); ctx.translate(mx, my); ctx.rotate(angle);
-        ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.closePath();
-        ctx.fillStyle = "#2563EB"; ctx.fill(); ctx.restore();
-      }
-    }
-
-    // Waypoint dots
-    waypoints.forEach((w, i) => {
-      const isFirst = i === 0, isLast = i === waypoints.length - 1;
-      const color = isFirst ? "#059669" : isLast ? "#DC2626" : getEventColor((w.eventTypes||[])[0] || w.eventType || "other");
-      ctx.beginPath(); ctx.arc(w.x, w.y, isFirst || isLast ? 8 : 6, 0, Math.PI * 2);
-      ctx.fillStyle = color; ctx.fill();
-      ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
-      // Sequence number
-      ctx.fillStyle = "white"; ctx.font = `bold ${isFirst || isLast ? 10 : 9}px DM Mono,monospace`; ctx.textAlign = "center";
-      ctx.fillText(i + 1, w.x, w.y + 3.5); ctx.textAlign = "left";
-    });
-
-    // Markers (triangles)
-    markers.forEach(m => {
-      const color = m.markerType === "stress" ? "#DC2626" : "#059669";
-      ctx.beginPath(); ctx.moveTo(m.x, m.y - 7); ctx.lineTo(m.x + 6, m.y + 5); ctx.lineTo(m.x - 6, m.y + 5); ctx.closePath();
-      ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle = "white"; ctx.lineWidth = 1.5; ctx.stroke();
-    });
-  }, [imageUrl, imgLoaded, zones, waypoints, markers, canvasDims]);
-
   function getPos(e) {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const sx = canvasRef.current.width / rect.width, sy = canvasRef.current.height / rect.height;
-    return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy) };
+    const el = wrapRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const rect = el.getBoundingClientRect();
+    return {
+      x: Math.round((e.clientX - rect.left) * (dims.w / rect.width)),
+      y: Math.round((e.clientY - rect.top) * (dims.h / rect.height)),
+    };
   }
 
+  const scale = dims.w / 1000;
+
   return (
-    <canvas ref={canvasRef} width={canvasDims.width} height={canvasDims.height}
+    <div ref={wrapRef}
+      style={{ position: "relative", width: "100%", height: "100%", cursor: "crosshair", background: "#F1F5F9", overflow: "hidden" }}
       onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
-      style={{
-        display: "block",
-        width: "100%",
-        height: "auto",
-        maxHeight: "100%",
-        cursor: "crosshair",
-        aspectRatio: canvasDims.width + " / " + canvasDims.height,
-      }}
-    />
+    >
+      {imageUrl
+        ? <img src={imageUrl} alt="Floorplan" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+        : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: 13, color: "#CBD5E1", fontFamily: "'DM Mono',monospace" }}>Upload a floorplan in Setup</span>
+          </div>
+      }
+      <svg viewBox={`0 0 ${dims.w} ${dims.h}`}
+        preserveAspectRatio="xMidYMid meet"
+        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none" }}
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* Zones */}
+        {zones.map((zone, idx) => {
+          if (!zone.points || zone.points.length < 2) return null;
+          const color = zoneColor(zone, idx);
+          const pts = zone.points.map(p => `${p.x},${p.y}`).join(" ");
+          const c = polygonCentroid(zone.points);
+          return (
+            <g key={zone.id}>
+              <polygon points={pts} fill={color + "28"} stroke={color} strokeWidth={2 * scale} />
+              <rect x={c.x - 40} y={c.y - 9} width={80} height={16} rx={3} fill="rgba(255,255,255,0.85)" />
+              <text x={c.x} y={c.y + 4} textAnchor="middle" fontSize={10 * scale} fontWeight="bold" fontFamily="DM Mono,monospace" fill={color}>{zone.name}</text>
+            </g>
+          );
+        })}
+
+        {/* Path between waypoints */}
+        {waypoints.length >= 2 && (() => {
+          const pathD = "M " + waypoints.map(w => `${w.x},${w.y}`).join(" L ");
+          return (
+            <g>
+              <path d={pathD} fill="none" stroke="rgba(0,0,0,0.12)" strokeWidth={6 * scale} strokeLinecap="round" strokeLinejoin="round" />
+              <path d={pathD} fill="none" stroke="#2563EB" strokeWidth={3 * scale} strokeLinecap="round" strokeLinejoin="round" />
+            </g>
+          );
+        })()}
+
+        {/* Waypoint dots */}
+        {waypoints.map((w, i) => {
+          const isFirst = i === 0, isLast = i === waypoints.length - 1;
+          const color = isFirst ? "#059669" : isLast ? "#DC2626" : getEventColor((w.eventTypes||[])[0] || w.eventType || "");
+          const r = (isFirst || isLast ? 8 : 6) * scale;
+          return (
+            <g key={w.id || i}>
+              <circle cx={w.x} cy={w.y} r={r} fill={color} stroke="white" strokeWidth={2 * scale} />
+              <text x={w.x} y={w.y + 4 * scale} textAnchor="middle" fontSize={Math.max(8, (isFirst || isLast ? 10 : 9) * scale)} fontWeight="bold" fontFamily="DM Mono,monospace" fill="white">{i + 1}</text>
+            </g>
+          );
+        })}
+
+        {/* Markers */}
+        {markers.map(m => {
+          const color = m.markerType === "stress" ? "#DC2626" : "#B45309";
+          const s = 7 * scale;
+          return <polygon key={m.id} points={`${m.x},${m.y - s} ${m.x + s * 0.85},${m.y + s * 0.7} ${m.x - s * 0.85},${m.y + s * 0.7}`} fill={color} stroke="white" strokeWidth={1.5 * scale} />;
+        })}
+      </svg>
+    </div>
   );
 }
 
