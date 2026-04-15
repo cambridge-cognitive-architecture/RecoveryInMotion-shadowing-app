@@ -366,12 +366,9 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
           if (!zone.points || zone.points.length < 2) return null;
           const color = zoneColor(zone, idx);
           const pts = zone.points.map(p => `${p.x},${p.y}`).join(" ");
-          const c = polygonCentroid(zone.points);
           return (
             <g key={zone.id}>
               <polygon points={pts} fill={color + "30"} stroke={color} strokeWidth={lw * 1.5} />
-              <rect x={c.x - 40} y={c.y - 9} width={80} height={16} rx={3} fill="rgba(255,255,255,0.88)" />
-              <text x={c.x} y={c.y + 4} textAnchor="middle" fontSize={10 * scale} fontWeight="bold" fontFamily="DM Mono,monospace" fill={color}>{zone.name}</text>
               {zone.points.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={dotR * 0.5} fill={color} />)}
             </g>
           );
@@ -530,7 +527,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
       {/* ── TOP STRIP: session details horizontally ── */}
       <div style={{ background:"white", border:"1.5px solid #E2E8F0", borderRadius:10, padding:"13px 16px" }}>
         <SectionHeader>Session Details</SectionHeader>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 140px 1fr 1fr 150px 150px", gap:12, alignItems:"end" }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(6, 1fr)", gap:12, alignItems:"end" }}>
           <Field label="Date"><Input value={session.date} onChange={v=>updateSession("date",v)} type="date" /></Field>
           <Field label="Observer ID"><Input value={session.observerId} onChange={v=>updateSession("observerId",v)} placeholder="OBS-01" /></Field>
           <Field label="Hospital"><Input value={study.hospital} onChange={v=>updateStudy("hospital",v)} placeholder="Trust / Hospital" /></Field>
@@ -977,12 +974,9 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
           if (!zone.points || zone.points.length < 2) return null;
           const color = zoneColor(zone, idx);
           const pts = zone.points.map(p => `${p.x},${p.y}`).join(" ");
-          const c = polygonCentroid(zone.points);
           return (
             <g key={zone.id}>
               <polygon points={pts} fill={color + "28"} stroke={color} strokeWidth={2 * scale} />
-              <rect x={c.x - 40} y={c.y - 9} width={80} height={16} rx={3} fill="rgba(255,255,255,0.85)" />
-              <text x={c.x} y={c.y + 4} textAnchor="middle" fontSize={10 * scale} fontWeight="bold" fontFamily="DM Mono,monospace" fill={color}>{zone.name}</text>
             </g>
           );
         })}
