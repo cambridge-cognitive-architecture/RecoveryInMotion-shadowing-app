@@ -1090,18 +1090,6 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
     pushHistory("event", ev.id, actLabel, "●", postLabel, stateLabel);
   }
 
-  function logActivityHere() {
-    if (!activeEv) return;
-    setEvents(evs => evs.map(ev => ev.id === activeEventId ? { ...ev, endTime: nowIso() } : ev));
-    const ev = { id: "E-" + Date.now(), eventType, bodilyAction, patientState, zoneId: activeEv.zoneId, startTime: nowIso(), x: activeEv.x, y: activeEv.y };
-    setEvents(e => [ev, ...e]);
-    setActiveEventId(ev.id);
-    const actLabel = EVENT_TYPES.find(e => e.id === eventType)?.label || "Event";
-    const postLabel = BODILY_ACTION_TYPES.find(a => a.id === bodilyAction)?.label || null;
-    const stateLabel = PATIENT_STATE.find(a => a.id === patientState)?.label || null;
-    pushHistory("event", ev.id, actLabel, "●", postLabel, stateLabel);
-  }
-
   function stopTracking() {
     if (activeEventId) {
       setEvents(evs => evs.map(ev => ev.id === activeEventId ? { ...ev, endTime: nowIso() } : ev));
@@ -1154,10 +1142,8 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
   };
 
   const counts = [
-    { label: "Events",   value: events.length,                                             color: "#2563EB" },
-    { label: "Stress",   value: markers.filter(m => m.markerType === "stress").length,     color: "#DC2626" },
-    { label: "Recovery", value: markers.filter(m => m.markerType === "recovery").length,   color: "#059669" },
-    { label: "Context",  value: markers.filter(m => m.markerType === "contextual").length, color: "#B45309" },
+    { label: "Events",      value: events.length,                                              color: "#2563EB" },
+    { label: "Environment", value: markers.filter(m => m.markerType === "contextual").length,  color: "#B45309" },
   ];
 
   // ── Sidebar section header helper ──────────────────────────────────────────
@@ -1172,7 +1158,7 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
 
       {/* ── LEFT: flex column so canvas sits at top, bar pins to bottom ── */}
       <div style={{ display: "flex", flexDirection: "column", borderRight: "1.5px solid #E2E8F0", height: "100%", overflow: "hidden" }}>
-        <div style={{ position: "relative", flexShrink: 0 }}>
+        <div style={{ position: "relative", flexShrink: 1, minHeight: 0, overflow: "hidden" }}>
         {events.length === 0 && (
           <div style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", zIndex: 2,
             background: "rgba(255,255,255,0.93)", borderRadius: 7, padding: "7px 18px",
@@ -1304,12 +1290,6 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
           {/* END ACTIONS — only shown when an event is active */}
           {activeEv && (
             <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-              <button onClick={logActivityHere}
-                style={{ flex: 1, padding: "8px 0", border: "1.5px solid #7C3AED", borderRadius: 8,
-                  background: "#EDE9FE", color: "#7C3AED", fontWeight: 800, fontSize: 12,
-                  fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
-                ◎ Log Here
-              </button>
               <button onClick={stopTracking}
                 style={{ flex: 1, padding: "8px 0", border: "none", borderRadius: 8,
                   background: "#DC2626", color: "white", fontWeight: 800, fontSize: 12,
