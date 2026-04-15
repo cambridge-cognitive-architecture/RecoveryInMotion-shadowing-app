@@ -469,21 +469,32 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
   }
 
   function exportZoneConfig() {
+    // Save zones as lean JSON (no embedded image — keep file small and reliable)
     const config = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       hospital: study.hospital,
       department: study.department,
-      floorplanUrl: floorplanUrl || null,
       zones,
     };
-    const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
     const dept = (study.department || "zones").replace(/\s+/g, "_");
-    a.href = url; a.download = `rim_zones_${dept}.json`;
+    // Download zones JSON
+    const jsonBlob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
+    const jsonUrl = URL.createObjectURL(jsonBlob);
+    const a = document.createElement("a");
+    a.href = jsonUrl; a.download = `rim_zones_${dept}.json`;
     document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
+    document.body.removeChild(a); URL.revokeObjectURL(jsonUrl);
+    // Also download floorplan image if present
+    if (floorplanUrl) {
+      setTimeout(() => {
+        const imgA = document.createElement("a");
+        imgA.href = floorplanUrl;
+        imgA.download = `rim_floorplan_${dept}.png`;
+        document.body.appendChild(imgA); imgA.click();
+        document.body.removeChild(imgA);
+      }, 400);
+    }
   }
 
   function handleZoneImport(file) {
@@ -493,9 +504,18 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
       try {
         const config = JSON.parse(e.target.result);
         if (config.zones) setZones(config.zones);
+        // v1 configs may have embedded floorplanUrl — restore if present
         if (config.floorplanUrl) setFloorplanUrl(config.floorplanUrl);
         if (config.hospital) updateStudy("hospital", config.hospital);
         if (config.department) updateStudy("department", config.department);
+        // If no floorplan in JSON (v2+), prompt user to upload it separately
+        if (!config.floorplanUrl && config.zones) {
+          setTimeout(() => {
+            if (window.confirm("Zones loaded! Upload the floorplan image now?\n\n(Click OK to open the file picker, or Cancel to upload it manually with the Upload Floorplan button)")) {
+              fileRef.current.click();
+            }
+          }, 100);
+        }
       } catch {
         alert("Could not read zone file — make sure it's a valid Recovery in Motion zone export.");
       }
@@ -591,7 +611,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
             <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
               <Btn onClick={() => zoneFileRef.current.click()} variant="ghost" small>⬆ Load Zone Config</Btn>
               {(zones.length > 0 || floorplanUrl) && (
-                <Btn onClick={exportZoneConfig} variant="ghost" small>⬇ Save Zone Config</Btn>
+                <Btn onClick={exportZoneConfig} variant="ghost" small>⬇ Save Zone Config + Floorplan</Btn>
               )}
             </div>
           </div>
