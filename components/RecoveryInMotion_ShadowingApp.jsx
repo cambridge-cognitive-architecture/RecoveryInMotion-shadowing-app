@@ -528,7 +528,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
       <div style={{ background:"white", border:"1.5px solid #E2E8F0", borderRadius:10, padding:"13px 16px" }}>
         <SectionHeader>Session Details</SectionHeader>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(6, 1fr)", gap:12, alignItems:"end" }}>
-          <Field label="Date"><Input value={session.date} onChange={v=>updateSession("date",v)} type="date" /></Field>
+          <Field label="Date"><Input value={session.date} onChange={v=>updateSession("date",v)} placeholder="YYYY-MM-DD" /></Field>
           <Field label="Observer ID"><Input value={session.observerId} onChange={v=>updateSession("observerId",v)} placeholder="OBS-01" /></Field>
           <Field label="Hospital"><Input value={study.hospital} onChange={v=>updateStudy("hospital",v)} placeholder="Trust / Hospital" /></Field>
           <Field label="Department"><Input value={study.department} onChange={v=>updateStudy("department",v)} placeholder="ED, ICU…" /></Field>
