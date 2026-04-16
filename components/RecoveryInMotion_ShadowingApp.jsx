@@ -1361,78 +1361,90 @@ function LiveTab({ session, zones, events, setEvents, markers, setMarkers, floor
 
 // ─── Review Tab ────────────────────────────────────────────────────────────────
 
-function ReviewTab({ session, zones, events, markers }) {
-  function exportAll() {
-    downloadText(`events_${session.sessionId}.csv`, toCsv(buildEventRows(session, zones, events)), "text/csv");
-    setTimeout(() => downloadText(`markers_${session.sessionId}.csv`, toCsv(buildMarkerRows(session, zones, markers)), "text/csv"), 300);
+function ReviewTab({ session, zones, events, markers, archivedSessions, onClearFieldDay }) {
+
+  // Build list of all sessions: archived + current (if has data)
+  const allSessions = [
+    ...archivedSessions,
+    ...(events.length > 0 || markers.length > 0 ? [{ session, events, markers }] : []),
+  ];
+
+  function exportSession(s) {
+    downloadText(`events_${s.session.sessionId}.csv`, toCsv(buildEventRows(s.session, zones, s.events)), "text/csv");
+    setTimeout(() => downloadText(`markers_${s.session.sessionId}.csv`, toCsv(buildMarkerRows(s.session, zones, s.markers)), "text/csv"), 300);
   }
-  const totalDur = events.reduce((s,ev) => s + (ev.endTime ? secondsBetween(ev.startTime,ev.endTime) : 0), 0);
-  const byType = EVENT_TYPES.map(et => ({...et, count:events.filter(ev=>(ev.eventTypes||[]).includes(et.id)).length})).filter(et=>et.count>0).sort((a,b)=>b.count-a.count);
+
+  function exportAll() {
+    allSessions.forEach((s, i) => {
+      setTimeout(() => {
+        downloadText(`events_${s.session.sessionId}.csv`, toCsv(buildEventRows(s.session, zones, s.events)), "text/csv");
+        setTimeout(() => downloadText(`markers_${s.session.sessionId}.csv`, toCsv(buildMarkerRows(s.session, zones, s.markers)), "text/csv"), 300);
+      }, i * 700);
+    });
+  }
+
+  const totalEvents = allSessions.reduce((s, p) => s + p.events.length, 0);
+  const totalMarkers = allSessions.reduce((s, p) => s + p.markers.length, 0);
+
   return (
     <div>
+      {/* Field day summary */}
       <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
-        <StatCard label="Total Events" value={events.length} color="#2563EB" />
-        <StatCard label="Completed" value={events.filter(e=>e.endTime).length} color="#059669" />
-        <StatCard label="Stress" value={markers.filter(m=>m.markerType==="stress").length} color="#DC2626" />
-        <StatCard label="Recovery" value={markers.filter(m=>m.markerType==="recovery").length} color="#059669" />
-        <StatCard label="Context" value={markers.filter(m=>m.markerType==="contextual").length} color="#B45309" />
-        <StatCard label="Observed" value={formatDuration(totalDur)} color="#7C3AED" />
+        <StatCard label="Participants" value={allSessions.length} color="#2563EB" />
+        <StatCard label="Total Events" value={totalEvents} color="#7C3AED" />
+        <StatCard label="Environment" value={totalMarkers} color="#B45309" />
         <StatCard label="Zones" value={zones.length} color="#0891B2" />
       </div>
 
-      {byType.length > 0 && <>
-        <SectionHeader>Event Breakdown</SectionHeader>
-        <div style={{ display:"flex", flexDirection:"column", gap:5, marginBottom:16 }}>
-          {byType.map(et => {
-            const pct = Math.round((et.count/events.length)*100);
-            return (
-              <div key={et.id} style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <div style={{ width:115, fontSize:11, fontFamily:"'DM Sans',sans-serif", color:"#475569", flexShrink:0 }}>{et.label}</div>
-                <div style={{ flex:1, background:"#F1F5F9", borderRadius:99, height:8 }}>
-                  <div style={{ width:`${pct}%`, background:et.color, height:"100%", borderRadius:99 }} />
+      {/* Export all */}
+      {allSessions.length > 0 && (
+        <>
+          <SectionHeader>Export</SectionHeader>
+          <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
+            <Btn onClick={exportAll} variant="success">⬇ Export All Participants</Btn>
+            {onClearFieldDay && <Btn onClick={onClearFieldDay} variant="danger">✕ Clear Field Day</Btn>}
+          </div>
+        </>
+      )}
+
+      {/* Per-participant cards */}
+      <SectionHeader>Participants</SectionHeader>
+      {allSessions.length === 0 && (
+        <div style={{ color:"#CBD5E1", fontFamily:"'DM Sans',sans-serif", fontSize:13, padding:"18px 0" }}>No data recorded yet.</div>
+      )}
+      {allSessions.map((s, idx) => {
+        const isCurrent = idx === allSessions.length - 1 && events.length > 0;
+        const dur = s.events.reduce((acc, ev) => acc + (ev.endTime ? secondsBetween(ev.startTime, ev.endTime) : 0), 0);
+        return (
+          <div key={s.session.sessionId} style={{ background:"white", border:"1.5px solid " + (isCurrent ? "#2563EB" : "#E2E8F0"), borderRadius:10, padding:"13px 16px", marginBottom:10 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+              <div>
+                <span style={{ fontSize:12, fontWeight:700, fontFamily:"'DM Mono',monospace", color: isCurrent ? "#2563EB" : "#1E293B" }}>
+                  {s.session.participantCode || "No code"} · {s.session.participantRole || "No role"}
+                  {isCurrent && <span style={{ marginLeft:8, fontSize:9, background:"#2563EB", color:"white", borderRadius:99, padding:"2px 6px" }}>CURRENT</span>}
+                </span>
+                <div style={{ fontSize:10, color:"#94A3B8", fontFamily:"'DM Mono',monospace", marginTop:2 }}>
+                  {s.session.date} · {s.session.sessionId.slice(-8)}
+                  {s.session.seniorityLevel && ` · ${s.session.seniorityLevel}`}
+                  {s.session.shiftType && ` · ${s.session.shiftType} shift`}
                 </div>
-                <div style={{ width:34, textAlign:"right", fontSize:10, fontFamily:"'DM Mono',monospace", color:"#64748B" }}>{pct}%</div>
-                <Badge color={et.color}>{et.count}</Badge>
               </div>
-            );
-          })}
-        </div>
-      </>}
-
-      <SectionHeader>Recent Events</SectionHeader>
-      <div style={{ overflowX:"auto", marginBottom:16 }}>
-        <table style={{ borderCollapse:"collapse", width:"100%", fontSize:11, fontFamily:"'DM Mono',monospace" }}>
-          <thead><tr style={{ borderBottom:"2px solid #E2E8F0" }}>
-            {["ID","Type","Start","End","Duration","Zone","People"].map(h => <th key={h} style={{ textAlign:"left", padding:"5px 8px", color:"#64748B", fontWeight:700, textTransform:"uppercase", fontSize:9, letterSpacing:"0.07em" }}>{h}</th>)}
-          </tr></thead>
-          <tbody>
-            {events.slice(0,14).map((ev,i) => (
-              <tr key={ev.id} style={{ borderBottom:"1px solid #F1F5F9", background:i%2===0?"#FAFAFA":"white" }}>
-                <td style={{ padding:"4px 8px", color:"#94A3B8" }}>{ev.id.slice(-5)}</td>
-                <td style={{ padding:"4px 8px" }}><Badge color={getEventColor(ev.eventType)}>{EVENT_TYPES.find(e=>e.id===ev.eventType)?.label||ev.eventType}</Badge></td>
-                <td style={{ padding:"4px 8px", color:"#475569" }}>{formatClock(ev.startTime)}</td>
-                <td style={{ padding:"4px 8px", color:"#475569" }}>{ev.endTime?formatClock(ev.endTime):<span style={{color:"#2563EB"}}>ongoing</span>}</td>
-                <td style={{ padding:"4px 8px", color:"#475569" }}>{ev.endTime?formatDuration(secondsBetween(ev.startTime,ev.endTime)):"—"}</td>
-                <td style={{ padding:"4px 8px", color:"#475569" }}>{findZoneName(zones,ev.zoneId)||"—"}</td>
-                <td style={{ padding:"4px 8px", color:"#475569" }}>{ev.peoplePresent||"—"}</td>
-              </tr>
-            ))}
-            {events.length===0 && <tr><td colSpan={7} style={{ padding:"18px", textAlign:"center", color:"#CBD5E1" }}>No events recorded.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-
-      <SectionHeader>Export</SectionHeader>
-      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-        <Btn onClick={exportAll} variant="success">⬇ Export All CSVs</Btn>
-        <Btn onClick={() => downloadText(`events_${session.sessionId}.csv`, toCsv(buildEventRows(session,zones,events)), "text/csv")} variant="ghost">Events only</Btn>
-        <Btn onClick={() => downloadText(`markers_${session.sessionId}.csv`, toCsv(buildMarkerRows(session,zones,markers)), "text/csv")} variant="ghost">Markers only</Btn>
-      </div>
+              <Btn onClick={() => exportSession(s)} variant="ghost" small>⬇ Export CSVs</Btn>
+            </div>
+            <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+              <StatPill label="Events" value={s.events.length} color="#2563EB" />
+              <StatPill label="Environment" value={s.markers.length} color="#B45309" />
+              <StatPill label="Observed" value={formatDuration(dur)||"—"} color="#7C3AED" />
+              {s.session.gender && <StatPill label="Gender" value={s.session.gender} color="#64748B" />}
+            </div>
+          </div>
+        );
+      })}
 
       <SectionHeader>CSV Schema</SectionHeader>
       {[
         { file:"events.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · first_language · seniority_level · clinical_experience · shift_type · departmental_status · protocol_checked · event_id · activity · bodily_action · patient_state · start_time · end_time · duration_seconds · zone_id · zone_name · x_coord · y_coord · note" },
-        { file:"markers.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · first_language · seniority_level · clinical_experience · shift_type · departmental_status · marker_id · marker_type (stress / recovery / contextual) · category · intensity_1_5 · timestamp · zone_id · zone_name · x_coord · y_coord · linked_event_id" },
+        { file:"markers.csv", cols:"session_id · date · hospital · department · unit · observer_id · participant_role · participant_code · gender · first_language · seniority_level · clinical_experience · shift_type · departmental_status · marker_id · marker_type · category · timestamp · zone_id · zone_name · x_coord · y_coord · linked_event_id" },
       ].map(s => (
         <div key={s.file} style={{ background:"#F8FAFC", border:"1.5px solid #E2E8F0", borderRadius:7, padding:"8px 11px", marginBottom:6 }}>
           <div style={{ fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#2563EB", marginBottom:3 }}>{s.file}</div>
@@ -1443,13 +1455,27 @@ function ReviewTab({ session, zones, events, markers }) {
   );
 }
 
+// ─── localStorage helpers ──────────────────────────────────────────────────────
+
+const LS_KEY = "rim_fieldday_v1";
+
+function saveToStorage(data) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch(e) { console.warn("localStorage save failed", e); }
+}
+
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) { return null; }
+}
+
 // ─── Root ──────────────────────────────────────────────────────────────────────
 
 export default function HospitalShadowingApp() {
   const [tab, setTab] = useState("setup");
   const navRef = useRef(null);
 
-  // ── Measure nav height and expose as CSS var so all children adapt ──
   useEffect(() => {
     function updateNavHeight() {
       if (navRef.current) {
@@ -1462,12 +1488,15 @@ export default function HospitalShadowingApp() {
     return () => window.removeEventListener('resize', updateNavHeight);
   }, []);
 
-  // ── Study-level state: persists across all participants in a field day ──
+  // ── Study-level state ──
   const [floorplanUrl, setFloorplanUrl] = useState(null);
   const [zones, setZones] = useState([]);
   const [study, setStudy] = useState({ hospital:"Addenbrooke's", department:"A&E" });
 
-  // ── Session-level state: reset between participants ──
+  // ── Session archive — all participants from this field day ──
+  const [archivedSessions, setArchivedSessions] = useState([]);
+
+  // ── Session-level state ──
   const freshSession = () => ({
     sessionId: "S-" + Date.now(),
     date: new Date().toISOString().slice(0, 10),
@@ -1479,15 +1508,48 @@ export default function HospitalShadowingApp() {
   const [events, setEvents] = useState([]);
   const [markers, setMarkers] = useState([]);
 
+  // ── Restore from localStorage on first load ──
+  useEffect(() => {
+    const saved = loadFromStorage();
+    if (!saved) return;
+    if (saved.study) setStudy(saved.study);
+    if (saved.zones) setZones(saved.zones);
+    if (saved.floorplanUrl) setFloorplanUrl(saved.floorplanUrl);
+    if (saved.session) setSession(saved.session);
+    if (saved.events) setEvents(saved.events);
+    if (saved.markers) setMarkers(saved.markers);
+    if (saved.archivedSessions) setArchivedSessions(saved.archivedSessions);
+  }, []);
+
+  // ── Save to localStorage whenever anything changes ──
+  useEffect(() => {
+    saveToStorage({ study, zones, floorplanUrl, session, events, markers, archivedSessions });
+  }, [study, zones, floorplanUrl, session, events, markers, archivedSessions]);
+
+  // ── Archive current participant and start fresh ──
   function newParticipant() {
-    if (!window.confirm("Start a new participant session? The floorplan and zones will be kept. Event and marker data for the current participant should be exported first.")) return;
+    if (!window.confirm("Archive current participant and start a new session?\n\nAll data will be saved and available to export from the Review tab.")) return;
+    // Archive current session if it has data
+    if (events.length > 0 || markers.length > 0) {
+      setArchivedSessions(prev => [...prev, { session, events, markers }]);
+    }
     setSession({ ...freshSession(), hospital: study.hospital, department: study.department });
     setEvents([]);
     setMarkers([]);
     setTab("setup");
   }
 
-  // Keep study fields in sync with session so CSV exports carry them
+  // ── Clear entire field day (end of day) ──
+  function clearFieldDay() {
+    if (!window.confirm("Clear all data for this field day? Make sure you have exported everything first.")) return;
+    setArchivedSessions([]);
+    setSession(freshSession());
+    setEvents([]);
+    setMarkers([]);
+    try { localStorage.removeItem(LS_KEY); } catch(e) {}
+    setTab("setup");
+  }
+
   function updateStudy(key, val) {
     setStudy(s => ({ ...s, [key]: val }));
     setSession(s => ({ ...s, [key]: val }));
@@ -1498,6 +1560,8 @@ export default function HospitalShadowingApp() {
     { id:"live", label:"Live" },
     { id:"review", label:"Review & Export" },
   ];
+
+  const totalParticipants = archivedSessions.length + (events.length > 0 || markers.length > 0 ? 1 : 0);
 
   return (
     <div style={{ height:"100dvh", overflow:"hidden", background:"#F0F4F8" }}>
@@ -1514,6 +1578,7 @@ export default function HospitalShadowingApp() {
               {session.hospital||"No hospital"} · {session.date} · {session.participantCode||"No participant"}
               {floorplanUrl && <span style={{ color:"#059669", marginLeft:8 }}>● Floorplan loaded</span>}
               {zones.length > 0 && <span style={{ color:"#7C3AED", marginLeft:8 }}>● {zones.length} zone{zones.length!==1?"s":""}</span>}
+              {archivedSessions.length > 0 && <span style={{ color:"#D97706", marginLeft:8 }}>● {archivedSessions.length} archived</span>}
             </div>
           </div>
           <div style={{ display:"flex", alignItems:"flex-end", gap:0 }}>
@@ -1529,6 +1594,7 @@ export default function HospitalShadowingApp() {
                   style={{ background:"none", border:"none", borderBottom:tab===t.id?"2.5px solid #2563EB":"2.5px solid transparent", padding:"11px 15px", cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace", textTransform:"uppercase", letterSpacing:"0.07em", color:tab===t.id?"#2563EB":"#94A3B8", transition:"all 0.15s", whiteSpace:"nowrap" }}>
                   {t.label}
                   {t.id==="live" && events.length>0 && <span style={{ marginLeft:4, background:"#2563EB", color:"white", borderRadius:99, fontSize:8, padding:"1px 5px", fontWeight:700 }}>{events.length}</span>}
+                  {t.id==="review" && totalParticipants>0 && <span style={{ marginLeft:4, background:"#D97706", color:"white", borderRadius:99, fontSize:8, padding:"1px 5px", fontWeight:700 }}>{totalParticipants}</span>}
                 </button>
               ))}
             </div>
@@ -1536,14 +1602,12 @@ export default function HospitalShadowingApp() {
         </div>
       </div>
 
-      {/* Setup & Review — scrollable content area */}
       {(tab==="setup" || tab==="review") && (
         <div style={{ height:"calc(100dvh - var(--nav-h, 52px))", overflowY:"auto", padding:"16px 32px" }}>
           {tab==="setup" && <SetupTab session={session} setSession={setSession} study={study} updateStudy={updateStudy} zones={zones} setZones={setZones} floorplanUrl={floorplanUrl} setFloorplanUrl={setFloorplanUrl} />}
-          {tab==="review" && <ReviewTab session={session} zones={zones} events={events} markers={markers} />}
+          {tab==="review" && <ReviewTab session={session} zones={zones} events={events} markers={markers} archivedSessions={archivedSessions} onClearFieldDay={clearFieldDay} />}
         </div>
       )}
-      {/* Live — fills exactly the remaining height, no gaps */}
       {tab==="live" && (
         <div style={{ height:"calc(100dvh - var(--nav-h, 52px))", overflow:"hidden" }}>
           <LiveTab session={session} zones={zones} events={events} setEvents={setEvents} markers={markers} setMarkers={setMarkers} floorplanUrl={floorplanUrl} />
