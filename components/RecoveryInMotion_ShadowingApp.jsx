@@ -342,15 +342,26 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
 
   return (
     <div ref={wrapRef}
-      style={{ position: "relative", width: "100%", maxHeight: height, lineHeight: 0, userSelect: "none", cursor: onCanvasClick ? "crosshair" : "default", borderRadius: 10, overflow: "hidden", background: "#F1F5F9" }}
+      style={{
+        position: "relative",
+        width: "100%",
+        aspectRatio: `${dims.w} / ${dims.h}`,
+        maxHeight: height,
+        lineHeight: 0,
+        userSelect: "none",
+        cursor: onCanvasClick ? "crosshair" : "default",
+        borderRadius: 10,
+        overflow: "hidden",
+        background: "#F1F5F9",
+      }}
       onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
       onMouseMove={e => { if (onCanvasMouseMove) onCanvasMouseMove(getPos(e)); }}
       onMouseLeave={onCanvasMouseLeave}
     >
       {/* Floorplan image */}
       {imageUrl
-        ? <img src={imageUrl} alt="Floorplan" style={{ width: "100%", height: "auto", maxHeight: height, display: "block", borderRadius: 10 }} />
-        : <div style={{ width: "100%", height: height, background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 10 }}>
+        ? <img src={imageUrl} alt="Floorplan" style={{ width: "100%", height: "100%", objectFit: "fill", display: "block", borderRadius: 10 }} />
+        : <div style={{ width: "100%", height: "100%", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 10 }}>
             <span style={{ fontSize: 13, color: "#CBD5E1", fontFamily: "'DM Mono',monospace", textAlign: "center" }}>Upload a floorplan image<br/>then draw zones by clicking on it</span>
           </div>
       }
@@ -1514,17 +1525,16 @@ export default function HospitalShadowingApp() {
     if (!saved) return;
     if (saved.study) setStudy(saved.study);
     if (saved.zones) setZones(saved.zones);
-    if (saved.floorplanUrl) setFloorplanUrl(saved.floorplanUrl);
     if (saved.session) setSession(saved.session);
     if (saved.events) setEvents(saved.events);
     if (saved.markers) setMarkers(saved.markers);
     if (saved.archivedSessions) setArchivedSessions(saved.archivedSessions);
   }, []);
 
-  // ── Save to localStorage whenever anything changes ──
+  // ── Save to localStorage whenever anything changes (exclude floorplan — too large) ──
   useEffect(() => {
-    saveToStorage({ study, zones, floorplanUrl, session, events, markers, archivedSessions });
-  }, [study, zones, floorplanUrl, session, events, markers, archivedSessions]);
+    saveToStorage({ study, zones, session, events, markers, archivedSessions });
+  }, [study, zones, session, events, markers, archivedSessions]);
 
   // ── Archive current participant and start fresh ──
   function newParticipant() {
@@ -1582,12 +1592,10 @@ export default function HospitalShadowingApp() {
             </div>
           </div>
           <div style={{ display:"flex", alignItems:"flex-end", gap:0 }}>
-            {(events.length > 0 || markers.length > 0) && (
-              <button onClick={newParticipant}
-                style={{ background:"none", border:"1.5px solid #E2E8F0", borderRadius:6, padding:"6px 12px", marginBottom:10, marginRight:12, cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#059669", whiteSpace:"nowrap" }}>
-                + New Participant
-              </button>
-            )}
+            <button onClick={newParticipant}
+              style={{ background:"none", border:"1.5px solid #E2E8F0", borderRadius:6, padding:"6px 12px", marginBottom:10, marginRight:12, cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#059669", whiteSpace:"nowrap" }}>
+              + New Participant
+            </button>
             <div style={{ display:"flex" }}>
               {tabs.map(t => (
                 <button key={t.id} onClick={() => setTab(t.id)}
