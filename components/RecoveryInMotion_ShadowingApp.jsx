@@ -304,27 +304,45 @@ function StatCard({ label, value, color }) {
 
 function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], hoverPoint=null, onCanvasClick, onCanvasMouseMove, onCanvasMouseLeave, events=[], markers=[], pendingPos=null, height=480, previewPoly=null }) {
   const wrapRef = useRef(null);
-  const [dims, setDims] = useState({ w: 1000, h: 600 }); // native image dims
-  const [imgReady, setImgReady] = useState(false);
+  const [dims, setDims] = useState({ w: 1, h: 1 });
 
-  // Load image to get native dimensions for SVG coordinate space
   useEffect(() => {
-    if (!imageUrl) { setImgReady(false); setDims({ w: 1000, h: 600 }); return; }
-    setImgReady(false);
+    if (!imageUrl) { setDims({ w: 1, h: 1 }); return; }
     const img = new Image();
-    img.onload = () => { setDims({ w: img.naturalWidth, h: img.naturalHeight }); setImgReady(true); };
+    img.onload = () => setDims({ w: img.naturalWidth, h: img.naturalHeight });
     img.onerror = () => console.error("Floorplan: image failed to load");
     img.src = imageUrl;
   }, [imageUrl]);
 
-  // Convert a pointer event to SVG coordinate space
+  // Convert pointer event → SVG coordinate space, accounting for object-fit:contain letterboxing
   function getPos(e) {
     const el = wrapRef.current;
     if (!el) return { x: 0, y: 0, scale: 1 };
     const rect = el.getBoundingClientRect();
-    const sx = dims.w / rect.width;
-    const sy = dims.h / rect.height;
-    return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy), scale: sx };
+    // object-fit:contain inside fixed-height container
+    const containerRatio = rect.width / rect.height;
+    const imageRatio = dims.w / dims.h;
+    let renderedW, renderedH, offsetX, offsetY;
+    if (imageRatio > containerRatio) {
+      // image is wider — letterbox top/bottom
+      renderedW = rect.width;
+      renderedH = rect.width / imageRatio;
+      offsetX = 0;
+      offsetY = (rect.height - renderedH) / 2;
+    } else {
+      // image is taller — letterbox left/right
+      renderedH = rect.height;
+      renderedW = rect.height * imageRatio;
+      offsetX = (rect.width - renderedW) / 2;
+      offsetY = 0;
+    }
+    const sx = dims.w / renderedW;
+    const sy = dims.h / renderedH;
+    return {
+      x: Math.round((e.clientX - rect.left - offsetX) * sx),
+      y: Math.round((e.clientY - rect.top - offsetY) * sy),
+      scale: sx,
+    };
   }
 
   const scale = dims.w / 1000;
@@ -332,7 +350,6 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
   const dotR = 6 * scale;
   const lw = 2 * scale;
 
-  // Build draft path string
   const draftPath = draftPoints.length > 0
     ? "M " + draftPoints.map(p => `${p.x},${p.y}`).join(" L ") + (hoverPoint ? ` L ${hoverPoint.x},${hoverPoint.y}` : "")
     : "";
@@ -345,30 +362,27 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
       style={{
         position: "relative",
         width: "100%",
-        aspectRatio: `${dims.w} / ${dims.h}`,
-        maxHeight: height,
-        lineHeight: 0,
+        height: height,
         userSelect: "none",
         cursor: onCanvasClick ? "crosshair" : "default",
         borderRadius: 10,
         overflow: "hidden",
         background: "#F1F5F9",
+        lineHeight: 0,
       }}
       onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
       onMouseMove={e => { if (onCanvasMouseMove) onCanvasMouseMove(getPos(e)); }}
       onMouseLeave={onCanvasMouseLeave}
     >
-      {/* Floorplan image */}
       {imageUrl
-        ? <img src={imageUrl} alt="Floorplan" style={{ width: "100%", height: "100%", objectFit: "fill", display: "block", borderRadius: 10 }} />
-        : <div style={{ width: "100%", height: "100%", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 10 }}>
+        ? <img src={imageUrl} alt="Floorplan" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+        : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span style={{ fontSize: 13, color: "#CBD5E1", fontFamily: "'DM Mono',monospace", textAlign: "center" }}>Upload a floorplan image<br/>then draw zones by clicking on it</span>
           </div>
       }
-
-      {/* SVG overlay — sits exactly on top of the image */}
       <svg
         viewBox={`0 0 ${dims.w} ${dims.h}`}
+        preserveAspectRatio="xMidYMid meet"
         style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none" }}
         xmlns="http://www.w3.org/2000/svg"
       >
@@ -611,13 +625,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
             )}
           </div>
 
-          <div style={{ border:"2px solid " + (drawingZone ? "#F59E0B" : "#E2E8F0"), borderRadius:12, minHeight:200, background:"#F8FAFC", alignSelf:"start", position:"relative" }}>
-            {floorplanUrl && !completedPoly && !drawingZone && zones.length === 0 && (
-              <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
-                fontSize:11, color:"#94A3B8", fontFamily:"'DM Mono',monospace", pointerEvents:"none" }}>
-                Loading floorplan…
-              </div>
-            )}
+          <div style={{ border:"2px solid " + (drawingZone ? "#F59E0B" : "#E2E8F0"), borderRadius:12, background:"#F8FAFC" }}>
             <FloorplanCanvas
               imageUrl={floorplanUrl} zones={zones}
               drawingMode={drawingZone} draftPoints={draftPoints} hoverPoint={hoverPoint}
