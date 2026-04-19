@@ -1487,22 +1487,142 @@ function LiveTab({ session, zones, events, setEvents, markers, setMarkers, floor
   return null;
 }
 
+// ─── CSV parser helpers ────────────────────────────────────────────────────────
+
+function parseCsv(text) {
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
+  return lines.slice(1).map(line => {
+    const vals = [];
+    let cur = "", inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === "," && !inQ) { vals.push(cur); cur = ""; }
+      else { cur += ch; }
+    }
+    vals.push(cur);
+    const row = {};
+    headers.forEach((h, i) => { row[h] = (vals[i] || "").replace(/^"|"$/g, ""); });
+    return row;
+  });
+}
+
+function sessionsFromEventsCsv(rows) {
+  // Group rows by session_id
+  const sessionMap = {};
+  rows.forEach(row => {
+    const sid = row.session_id || ("imported_" + row.date + "_" + row.participant_code);
+    if (!sessionMap[sid]) {
+      sessionMap[sid] = {
+        session: {
+          sessionId: sid,
+          date: row.date || "",
+          hospital: row.hospital || "",
+          department: row.department || "",
+          participantCode: row.participant_code || "",
+          participantRole: row.participant_role || "",
+          seniorityLevel: row.seniority_level || "",
+          shiftType: row.shift_type || "",
+          gender: row.gender || "",
+        },
+        events: [],
+        markers: [],
+      };
+    }
+    sessionMap[sid].events.push({
+      id: row.event_id || ("e_" + Math.random()),
+      eventTypes: row.activity ? row.activity.split(",").map(s=>s.trim()).filter(Boolean) : [],
+      bodilyActions: row.bodily_action ? row.bodily_action.split(",").map(s=>s.trim()).filter(Boolean) : [],
+      patientStates: row.patient_state ? row.patient_state.split(",").map(s=>s.trim()).filter(Boolean) : [],
+      startTime: row.start_time || "",
+      endTime: row.end_time || "",
+      zoneId: row.zone_id || "",
+      x: parseFloat(row.x_coord) || 0,
+      y: parseFloat(row.y_coord) || 0,
+    });
+  });
+  return Object.values(sessionMap);
+}
+
+function markersFromCsv(rows, existingSessions) {
+  // Group markers by session_id and merge into existing sessions
+  const result = existingSessions.map(s => ({ ...s, markers: [...s.markers] }));
+  rows.forEach(row => {
+    const sid = row.session_id;
+    const target = result.find(s => s.session.sessionId === sid);
+    if (target) {
+      target.markers.push({
+        id: row.marker_id || ("m_" + Math.random()),
+        markerType: row.marker_type || "contextual",
+        category: row.category || "",
+        timestamp: row.timestamp || "",
+        zoneId: row.zone_id || "",
+        x: parseFloat(row.x_coord) || 0,
+        y: parseFloat(row.y_coord) || 0,
+        linkedEventId: row.linked_event_id || "",
+      });
+    }
+  });
+  return result;
+}
+
 // ─── Analyse Tab ───────────────────────────────────────────────────────────────
 
 function AnalyseTab({ zones, allSessions }) {
   const [selected, setSelected] = useState(() => new Set(allSessions.map(s => s.session.sessionId)));
+  const [importedSessions, setImportedSessions] = useState([]);
+  const eventsFileRef = useRef(null);
+  const markersFileRef = useRef(null);
+
+  const combinedSessions = [...allSessions, ...importedSessions];
 
   // Keep selection in sync when sessions change
   useEffect(() => {
     setSelected(prev => {
-      const ids = new Set(allSessions.map(s => s.session.sessionId));
+      const ids = new Set(combinedSessions.map(s => s.session.sessionId));
       const next = new Set([...prev].filter(id => ids.has(id)));
-      if (next.size === 0) allSessions.forEach(s => next.add(s.session.sessionId));
+      if (next.size === 0) combinedSessions.forEach(s => next.add(s.session.sessionId));
       return next;
     });
-  }, [allSessions]);
+  }, [allSessions, importedSessions]);
 
-  const selSessions = allSessions.filter(s => selected.has(s.session.sessionId));
+  function handleEventsImport(files) {
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const rows = parseCsv(e.target.result);
+        if (!rows.length) return;
+        const parsed = sessionsFromEventsCsv(rows);
+        setImportedSessions(prev => {
+          // avoid duplicates
+          const existingIds = new Set(prev.map(s => s.session.sessionId));
+          const newOnes = parsed.filter(s => !existingIds.has(s.session.sessionId));
+          return [...prev, ...newOnes];
+        });
+        setSelected(prev => {
+          const next = new Set(prev);
+          parsed.forEach(s => next.add(s.session.sessionId));
+          return next;
+        });
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  function handleMarkersImport(files) {
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const rows = parseCsv(e.target.result);
+        setImportedSessions(prev => markersFromCsv(rows, prev));
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  const selSessions = combinedSessions.filter(s => selected.has(s.session.sessionId));
   const selEvents = selSessions.flatMap(s => s.events);
   const selMarkers = selSessions.flatMap(s => s.markers);
 
@@ -1566,18 +1686,33 @@ function AnalyseTab({ zones, allSessions }) {
     setTimeout(() => { if (w) w.print(); }, 800);
   }
 
-  if (allSessions.length === 0) {
-    return <div style={{ color:"#CBD5E1", fontFamily:"'DM Sans',sans-serif", fontSize:13, padding:"32px 0", textAlign:"center" }}>No sessions to analyse yet.</div>;
+  if (combinedSessions.length === 0) {
+    return (
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"48px 0", gap:16 }}>
+        <div style={{ fontSize:13, color:"#94A3B8", fontFamily:"'DM Sans',sans-serif", marginBottom:4 }}>No sessions in memory. Import exported CSVs to analyse.</div>
+        <div style={{ display:"flex", gap:8 }}>
+          <input ref={eventsFileRef} type="file" accept=".csv" multiple style={{ display:"none" }} onChange={e => handleEventsImport(e.target.files)} />
+          <button onClick={() => eventsFileRef.current.click()}
+            style={{ padding:"8px 16px", border:"1.5px solid #2563EB", borderRadius:7, background:"#EFF6FF",
+              cursor:"pointer", fontSize:12, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#2563EB" }}>
+            ⬆ Import events.csv
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div>
-      {/* Session selector */}
-      <SectionHeader>Select Sessions</SectionHeader>
-      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:20 }}>
-        {allSessions.map((s, idx) => {
+      {/* Import + session selector */}
+      <SectionHeader>Sessions</SectionHeader>
+      <input ref={eventsFileRef} type="file" accept=".csv" multiple style={{ display:"none" }} onChange={e => handleEventsImport(e.target.files)} />
+      <input ref={markersFileRef} type="file" accept=".csv" multiple style={{ display:"none" }} onChange={e => handleMarkersImport(e.target.files)} />
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12, alignItems:"center" }}>
+        {combinedSessions.map((s, idx) => {
           const sel = selected.has(s.session.sessionId);
           const color = ptColors[idx % ptColors.length];
+          const isImported = importedSessions.some(i => i.session.sessionId === s.session.sessionId);
           return (
             <button key={s.session.sessionId} onClick={() => toggleSession(s.session.sessionId)}
               style={{ padding:"6px 12px", border:"2px solid " + (sel ? color : "#E2E8F0"), borderRadius:7,
@@ -1586,15 +1721,30 @@ function AnalyseTab({ zones, allSessions }) {
                 color: sel ? color : "#94A3B8", transition:"all 0.15s" }}>
               <span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background: sel ? color : "#E2E8F0", marginRight:6 }} />
               {s.session.participantCode || `P${idx+1}`} · {s.session.date}
+              {isImported && <span style={{ marginLeft:5, fontSize:8, color:sel?color:"#94A3B8" }}>CSV</span>}
             </button>
           );
         })}
-        <button onClick={exportPDF}
-          style={{ marginLeft:"auto", padding:"6px 14px", border:"1.5px solid #2563EB", borderRadius:7,
-            background:"#EFF6FF", cursor:"pointer", fontSize:11, fontWeight:700,
-            fontFamily:"'DM Mono',monospace", color:"#2563EB" }}>
-          ⬇ Export PDF
-        </button>
+        <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
+          <button onClick={() => eventsFileRef.current.click()}
+            style={{ padding:"6px 12px", border:"1.5px solid #E2E8F0", borderRadius:7, background:"white",
+              cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#64748B" }}>
+            ⬆ Import events CSV
+          </button>
+          {importedSessions.length > 0 && (
+            <button onClick={() => markersFileRef.current.click()}
+              style={{ padding:"6px 12px", border:"1.5px solid #E2E8F0", borderRadius:7, background:"white",
+                cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#64748B" }}>
+              ⬆ Import markers CSV
+            </button>
+          )}
+          <button onClick={exportPDF}
+            style={{ padding:"6px 14px", border:"1.5px solid #2563EB", borderRadius:7,
+              background:"#EFF6FF", cursor:"pointer", fontSize:11, fontWeight:700,
+              fontFamily:"'DM Mono',monospace", color:"#2563EB" }}>
+            ⬇ Export PDF
+          </button>
+        </div>
       </div>
 
       {/* ── MOVEMENT PATHS ── */}
