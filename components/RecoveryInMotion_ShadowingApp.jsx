@@ -1487,6 +1487,436 @@ function LiveTab({ session, zones, events, setEvents, markers, setMarkers, floor
   return null;
 }
 
+// ─── Analyse Tab ───────────────────────────────────────────────────────────────
+
+function AnalyseTab({ zones, allSessions }) {
+  const [selected, setSelected] = useState(() => new Set(allSessions.map(s => s.session.sessionId)));
+
+  // Keep selection in sync when sessions change
+  useEffect(() => {
+    setSelected(prev => {
+      const ids = new Set(allSessions.map(s => s.session.sessionId));
+      const next = new Set([...prev].filter(id => ids.has(id)));
+      if (next.size === 0) allSessions.forEach(s => next.add(s.session.sessionId));
+      return next;
+    });
+  }, [allSessions]);
+
+  const selSessions = allSessions.filter(s => selected.has(s.session.sessionId));
+  const selEvents = selSessions.flatMap(s => s.events);
+  const selMarkers = selSessions.flatMap(s => s.markers);
+
+  function toggleSession(id) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { if (next.size > 1) next.delete(id); }
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // ── Zone dwell time ──
+  const zoneDwell = zones.map(zone => {
+    const evs = selEvents.filter(ev => ev.zoneId === zone.id && ev.endTime);
+    const secs = evs.reduce((s, ev) => s + secondsBetween(ev.startTime, ev.endTime), 0);
+    return { zone, secs, count: evs.length };
+  }).filter(z => z.count > 0).sort((a, b) => b.secs - a.secs);
+  const maxDwell = Math.max(...zoneDwell.map(z => z.secs), 1);
+
+  // ── Activity distribution ──
+  const activityCounts = EVENT_TYPES.map(et => ({
+    ...et,
+    count: selEvents.filter(ev => (ev.eventTypes || []).includes(et.id)).length,
+  })).filter(et => et.count > 0).sort((a, b) => b.count - a.count);
+  const totalActs = activityCounts.reduce((s, a) => s + a.count, 0) || 1;
+
+  // ── Environment flags by zone ──
+  const envByZone = zones.map(zone => ({
+    zone,
+    count: selMarkers.filter(m => m.zoneId === zone.id).length,
+  })).filter(z => z.count > 0).sort((a, b) => b.count - a.count);
+
+  // ── Environment flags by category ──
+  const envByCat = ENVIRONMENT_FLAGS.map(f => ({
+    ...f,
+    count: selMarkers.filter(m => m.category === f.id).length,
+  })).filter(f => f.count > 0).sort((a, b) => b.count - a.count);
+  const maxEnv = Math.max(...envByCat.map(f => f.count), 1);
+
+  // ── Floorplan bounds from zones ──
+  const allPts = zones.flatMap(z => z.points || []);
+  const vb = allPts.length > 0 ? {
+    x: Math.min(...allPts.map(p => p.x)),
+    y: Math.min(...allPts.map(p => p.y)),
+    w: Math.max(...allPts.map(p => p.x)) - Math.min(...allPts.map(p => p.x)),
+    h: Math.max(...allPts.map(p => p.y)) - Math.min(...allPts.map(p => p.y)),
+  } : { x: 0, y: 0, w: 1000, h: 600 };
+  const pad = 60;
+  const svgVb = `${vb.x - pad} ${vb.y - pad} ${vb.w + pad * 2} ${vb.h + pad * 2}`;
+
+  // Participant colours for path overlay
+  const ptColors = ["#2563EB", "#DC2626", "#059669", "#D97706", "#7C3AED", "#0891B2"];
+
+  function exportPDF() {
+    // Build a self-contained HTML with print styles, open in new tab
+    const html = buildAnalysisHTML({ zones, selSessions, svgVb, vb, pad, ptColors, zoneDwell, maxDwell, activityCounts, totalActs, envByZone, envByCat, maxEnv });
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, "_blank");
+    setTimeout(() => { if (w) w.print(); }, 800);
+  }
+
+  if (allSessions.length === 0) {
+    return <div style={{ color:"#CBD5E1", fontFamily:"'DM Sans',sans-serif", fontSize:13, padding:"32px 0", textAlign:"center" }}>No sessions to analyse yet.</div>;
+  }
+
+  return (
+    <div>
+      {/* Session selector */}
+      <SectionHeader>Select Sessions</SectionHeader>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:20 }}>
+        {allSessions.map((s, idx) => {
+          const sel = selected.has(s.session.sessionId);
+          const color = ptColors[idx % ptColors.length];
+          return (
+            <button key={s.session.sessionId} onClick={() => toggleSession(s.session.sessionId)}
+              style={{ padding:"6px 12px", border:"2px solid " + (sel ? color : "#E2E8F0"), borderRadius:7,
+                background: sel ? color + "18" : "white", cursor:"pointer",
+                fontSize:11, fontWeight:700, fontFamily:"'DM Mono',monospace",
+                color: sel ? color : "#94A3B8", transition:"all 0.15s" }}>
+              <span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background: sel ? color : "#E2E8F0", marginRight:6 }} />
+              {s.session.participantCode || `P${idx+1}`} · {s.session.date}
+            </button>
+          );
+        })}
+        <button onClick={exportPDF}
+          style={{ marginLeft:"auto", padding:"6px 14px", border:"1.5px solid #2563EB", borderRadius:7,
+            background:"#EFF6FF", cursor:"pointer", fontSize:11, fontWeight:700,
+            fontFamily:"'DM Mono',monospace", color:"#2563EB" }}>
+          ⬇ Export PDF
+        </button>
+      </div>
+
+      {/* ── MOVEMENT PATHS ── */}
+      <SectionHeader>Movement Paths</SectionHeader>
+      <div style={{ background:"white", border:"1.5px solid #E2E8F0", borderRadius:10, padding:12, marginBottom:16 }}>
+        <svg viewBox={svgVb} style={{ width:"100%", height:"auto", maxHeight:400 }} xmlns="http://www.w3.org/2000/svg">
+          {/* Zone polygons */}
+          {zones.map((zone, idx) => {
+            if (!zone.points || zone.points.length < 2) return null;
+            const color = zoneColor(zone, idx);
+            return <polygon key={zone.id} points={zone.points.map(p=>`${p.x},${p.y}`).join(" ")} fill={color+"22"} stroke={color} strokeWidth={3} />;
+          })}
+          {/* Paths per participant */}
+          {selSessions.map((s, idx) => {
+            const color = ptColors[idx % ptColors.length];
+            const evs = [...s.events].reverse().filter(e => typeof e.x === "number");
+            if (evs.length < 2) return null;
+            const pathD = "M " + evs.map(e => `${e.x},${e.y}`).join(" L ");
+            return (
+              <g key={s.session.sessionId}>
+                <path d={pathD} fill="none" stroke={color} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" opacity={0.7} />
+                {evs.map((e, i) => <circle key={i} cx={e.x} cy={e.y} r={8} fill={color} stroke="white" strokeWidth={2} opacity={0.85} />)}
+              </g>
+            );
+          })}
+        </svg>
+        {/* Legend */}
+        <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginTop:8 }}>
+          {selSessions.map((s, idx) => (
+            <div key={s.session.sessionId} style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, fontFamily:"'DM Mono',monospace", color:"#475569" }}>
+              <div style={{ width:16, height:3, background:ptColors[idx % ptColors.length], borderRadius:2 }} />
+              {s.session.participantCode || `P${idx+1}`}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── ZONE DWELL TIME ── */}
+      <SectionHeader>Zone Dwell Time</SectionHeader>
+      <div style={{ background:"white", border:"1.5px solid #E2E8F0", borderRadius:10, padding:12, marginBottom:16 }}>
+        {zoneDwell.length === 0
+          ? <div style={{ color:"#CBD5E1", fontSize:12 }}>No completed events yet.</div>
+          : zoneDwell.slice(0, 12).map(({ zone, secs }, idx) => {
+            const color = zoneColor(zone, zones.indexOf(zone));
+            const pct = Math.round((secs / maxDwell) * 100);
+            return (
+              <div key={zone.id} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                <div style={{ width:120, fontSize:10, fontFamily:"'DM Sans',sans-serif", color:"#475569", flexShrink:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{zone.name}</div>
+                <div style={{ flex:1, background:"#F1F5F9", borderRadius:99, height:10 }}>
+                  <div style={{ width:`${pct}%`, background:color, height:"100%", borderRadius:99 }} />
+                </div>
+                <div style={{ width:44, textAlign:"right", fontSize:10, fontFamily:"'DM Mono',monospace", color:"#64748B", flexShrink:0 }}>{formatDuration(secs)}</div>
+              </div>
+            );
+          })
+        }
+      </div>
+
+      {/* ── ACTIVITY DISTRIBUTION ── */}
+      <SectionHeader>Activity Distribution</SectionHeader>
+      <div style={{ background:"white", border:"1.5px solid #E2E8F0", borderRadius:10, padding:12, marginBottom:16 }}>
+        {activityCounts.length === 0
+          ? <div style={{ color:"#CBD5E1", fontSize:12 }}>No activities logged yet.</div>
+          : activityCounts.map(et => {
+            const pct = Math.round((et.count / totalActs) * 100);
+            return (
+              <div key={et.id} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                <div style={{ width:160, fontSize:10, fontFamily:"'DM Sans',sans-serif", color:"#475569", flexShrink:0 }}>{et.label}</div>
+                <div style={{ flex:1, background:"#F1F5F9", borderRadius:99, height:10 }}>
+                  <div style={{ width:`${pct}%`, background:et.color, height:"100%", borderRadius:99 }} />
+                </div>
+                <div style={{ width:40, textAlign:"right", fontSize:10, fontFamily:"'DM Mono',monospace", color:"#64748B", flexShrink:0 }}>{pct}%</div>
+                <div style={{ width:20, textAlign:"right", fontSize:10, fontFamily:"'DM Mono',monospace", color:"#94A3B8", flexShrink:0 }}>{et.count}</div>
+              </div>
+            );
+          })
+        }
+      </div>
+
+      {/* ── ENVIRONMENT FLAGS ── */}
+      <SectionHeader>Environment Flags</SectionHeader>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+        <div style={{ background:"white", border:"1.5px solid #E2E8F0", borderRadius:10, padding:12 }}>
+          <div style={{ fontSize:10, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#64748B", marginBottom:8, textTransform:"uppercase", letterSpacing:"0.08em" }}>By Type</div>
+          {envByCat.length === 0
+            ? <div style={{ color:"#CBD5E1", fontSize:12 }}>No flags yet.</div>
+            : envByCat.map(f => {
+              const pct = Math.round((f.count / maxEnv) * 100);
+              return (
+                <div key={f.id} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
+                  <div style={{ width:120, fontSize:10, fontFamily:"'DM Sans',sans-serif", color:"#475569", flexShrink:0 }}>{f.label}</div>
+                  <div style={{ flex:1, background:"#FEF3C7", borderRadius:99, height:8 }}>
+                    <div style={{ width:`${pct}%`, background:"#B45309", height:"100%", borderRadius:99 }} />
+                  </div>
+                  <div style={{ width:20, textAlign:"right", fontSize:10, fontFamily:"'DM Mono',monospace", color:"#B45309", flexShrink:0 }}>{f.count}</div>
+                </div>
+              );
+            })
+          }
+        </div>
+        <div style={{ background:"white", border:"1.5px solid #E2E8F0", borderRadius:10, padding:12 }}>
+          <div style={{ fontSize:10, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#64748B", marginBottom:8, textTransform:"uppercase", letterSpacing:"0.08em" }}>By Zone</div>
+          {envByZone.length === 0
+            ? <div style={{ color:"#CBD5E1", fontSize:12 }}>No flags yet.</div>
+            : envByZone.slice(0, 8).map(({ zone, count }, idx) => {
+              const color = zoneColor(zone, zones.indexOf(zone));
+              const pct = Math.round((count / envByZone[0].count) * 100);
+              return (
+                <div key={zone.id} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
+                  <div style={{ width:120, fontSize:10, fontFamily:"'DM Sans',sans-serif", color:"#475569", flexShrink:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{zone.name}</div>
+                  <div style={{ flex:1, background:"#F1F5F9", borderRadius:99, height:8 }}>
+                    <div style={{ width:`${pct}%`, background:color, height:"100%", borderRadius:99 }} />
+                  </div>
+                  <div style={{ width:20, textAlign:"right", fontSize:10, fontFamily:"'DM Mono',monospace", color:"#64748B", flexShrink:0 }}>{count}</div>
+                </div>
+              );
+            })
+          }
+        </div>
+      </div>
+
+      {/* ── ZONE SEQUENCE ── */}
+      <SectionHeader>Zone Sequence</SectionHeader>
+      <div style={{ background:"white", border:"1.5px solid #E2E8F0", borderRadius:10, padding:12, marginBottom:16, overflowX:"auto" }}>
+        {selSessions.map((s, idx) => {
+          const color = ptColors[idx % ptColors.length];
+          const evs = [...s.events].reverse().filter(e => e.zoneId);
+          return (
+            <div key={s.session.sessionId} style={{ display:"flex", alignItems:"center", gap:0, marginBottom:8, minWidth:"max-content" }}>
+              <div style={{ fontSize:9, fontWeight:700, fontFamily:"'DM Mono',monospace", color:"#64748B", width:60, flexShrink:0 }}>
+                {s.session.participantCode || `P${idx+1}`}
+              </div>
+              <div style={{ display:"flex", gap:2, flexWrap:"nowrap" }}>
+                {evs.map((ev, i) => {
+                  const zone = zones.find(z => z.id === ev.zoneId);
+                  if (!zone) return null;
+                  const zcolor = zoneColor(zone, zones.indexOf(zone));
+                  return (
+                    <div key={i} title={zone.name}
+                      style={{ width:28, height:20, background:zcolor + "33", border:"1.5px solid " + zcolor,
+                        borderRadius:3, display:"flex", alignItems:"center", justifyContent:"center",
+                        fontSize:7, color:zcolor, fontWeight:700, fontFamily:"'DM Mono',monospace",
+                        overflow:"hidden", whiteSpace:"nowrap" }}>
+                      {zone.name.slice(0,3)}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── PDF report builder ────────────────────────────────────────────────────────
+
+function buildAnalysisHTML({ zones, selSessions, svgVb, vb, pad, ptColors, zoneDwell, maxDwell, activityCounts, totalActs, envByZone, envByCat, maxEnv }) {
+  const ptColors6 = ptColors;
+
+  const zonesPolygons = zones.map((zone, idx) => {
+    const color = zoneColor(zone, idx);
+    const pts = (zone.points||[]).map(p=>`${p.x},${p.y}`).join(" ");
+    return `<polygon points="${pts}" fill="${color}22" stroke="${color}" stroke-width="3"/>`;
+  }).join("\n");
+
+  const paths = selSessions.map((s, idx) => {
+    const color = ptColors6[idx % ptColors6.length];
+    const evs = [...s.events].reverse().filter(e => typeof e.x === "number");
+    if (evs.length < 1) return "";
+    const pathD = evs.length >= 2 ? "M " + evs.map(e=>`${e.x},${e.y}`).join(" L ") : "";
+    const circles = evs.map(e => `<circle cx="${e.x}" cy="${e.y}" r="8" fill="${color}" stroke="white" stroke-width="2" opacity="0.85"/>`).join("\n");
+    return `<path d="${pathD}" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+${circles}`;
+  }).join("\n");
+
+  const legendItems = selSessions.map((s, idx) =>
+    `<div style="display:flex;align-items:center;gap:6px;font-size:11px;font-family:monospace;color:#475569;">
+      <div style="width:18px;height:3px;background:${ptColors6[idx%ptColors6.length]};border-radius:2px;"></div>
+      ${s.session.participantCode || `P${idx+1}`} · ${s.session.date}
+    </div>`
+  ).join("\n");
+
+  const dwellBars = zoneDwell.slice(0,12).map(({zone, secs}) => {
+    const color = zoneColor(zone, zones.indexOf(zone));
+    const pct = Math.round((secs/maxDwell)*100);
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <div style="width:130px;font-size:10px;font-family:sans-serif;color:#475569;overflow:hidden;white-space:nowrap;">${zone.name}</div>
+      <div style="flex:1;background:#F1F5F9;border-radius:99px;height:10px;">
+        <div style="width:${pct}%;background:${color};height:100%;border-radius:99px;"></div>
+      </div>
+      <div style="width:44px;text-align:right;font-size:10px;font-family:monospace;color:#64748B;">${formatDuration(secs)}</div>
+    </div>`;
+  }).join("\n");
+
+  const actBars = activityCounts.map(et => {
+    const pct = Math.round((et.count/totalActs)*100);
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <div style="width:170px;font-size:10px;font-family:sans-serif;color:#475569;">${et.label}</div>
+      <div style="flex:1;background:#F1F5F9;border-radius:99px;height:10px;">
+        <div style="width:${pct}%;background:${et.color};height:100%;border-radius:99px;"></div>
+      </div>
+      <div style="width:36px;text-align:right;font-size:10px;font-family:monospace;color:#64748B;">${pct}%</div>
+    </div>`;
+  }).join("\n");
+
+  const envCatBars = envByCat.map(f => {
+    const pct = Math.round((f.count/maxEnv)*100);
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
+      <div style="width:140px;font-size:10px;font-family:sans-serif;color:#475569;">${f.label}</div>
+      <div style="flex:1;background:#FEF3C7;border-radius:99px;height:8px;">
+        <div style="width:${pct}%;background:#B45309;height:100%;border-radius:99px;"></div>
+      </div>
+      <div style="width:20px;text-align:right;font-size:10px;font-family:monospace;color:#B45309;">${f.count}</div>
+    </div>`;
+  }).join("\n");
+
+  const envZoneBars = envByZone.slice(0,8).map(({zone, count}) => {
+    const color = zoneColor(zone, zones.indexOf(zone));
+    const pct = Math.round((count/envByZone[0].count)*100);
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
+      <div style="width:140px;font-size:10px;font-family:sans-serif;color:#475569;overflow:hidden;white-space:nowrap;">${zone.name}</div>
+      <div style="flex:1;background:#F1F5F9;border-radius:99px;height:8px;">
+        <div style="width:${pct}%;background:${color};height:100%;border-radius:99px;"></div>
+      </div>
+      <div style="width:20px;text-align:right;font-size:10px;font-family:monospace;color:#64748B;">${count}</div>
+    </div>`;
+  }).join("\n");
+
+  const sessionTable = selSessions.map((s,idx) => {
+    const evs = s.events;
+    const dur = evs.reduce((acc,ev) => acc+(ev.endTime?secondsBetween(ev.startTime,ev.endTime):0),0);
+    const zones_visited = [...new Set(evs.map(e=>e.zoneId).filter(Boolean))].length;
+    return `<tr>
+      <td>${s.session.participantCode||`P${idx+1}`}</td>
+      <td>${s.session.participantRole||"—"}</td>
+      <td>${s.session.seniorityLevel||"—"}</td>
+      <td>${s.session.date}</td>
+      <td>${evs.length}</td>
+      <td>${zones_visited}</td>
+      <td>${formatDuration(dur)}</td>
+      <td>${s.markers.length}</td>
+    </tr>`;
+  }).join("\n");
+
+  const now = new Date().toLocaleDateString("en-GB", {day:"numeric",month:"long",year:"numeric"});
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+<title>Recovery in Motion — Analysis Report</title>
+<style>
+  @page { size: A4 landscape; margin: 15mm 18mm; }
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size:11px; color:#1A1814; background:white; }
+  .page { width:100%; page-break-after:always; padding-bottom:20px; }
+  .page:last-child { page-break-after:auto; }
+  h1 { font-size:22px; font-weight:800; letter-spacing:-0.02em; color:#1A1814; margin-bottom:4px; }
+  h2 { font-size:14px; font-weight:700; color:#1A1814; margin-bottom:12px; margin-top:20px; border-bottom:2px solid #E4E0DA; padding-bottom:5px; }
+  .label { font-size:8px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:#94A3B8; margin-bottom:4px; font-family:monospace; }
+  .meta { font-size:10px; color:#94A3B8; font-family:monospace; margin-bottom:16px; }
+  table { width:100%; border-collapse:collapse; font-size:10px; }
+  th { text-align:left; padding:5px 8px; background:#F8FAFC; color:#64748B; font-size:8px; text-transform:uppercase; letter-spacing:0.08em; border-bottom:2px solid #E4E0DA; }
+  td { padding:5px 8px; border-bottom:1px solid #F1F5F9; color:#475569; }
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  .card { background:#F8FAFC; border-radius:8px; padding:14px; }
+  svg { display:block; width:100%; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="label">Recovery in Motion · Stream B · Addenbrooke's A&E</div>
+  <h1>Analysis Report</h1>
+  <div class="meta">Generated ${now} · ${selSessions.length} participant${selSessions.length!==1?"s":""} · ${selSessions.reduce((s,p)=>s+p.events.length,0)} events · ${selSessions.reduce((s,p)=>s+p.markers.length,0)} environment flags</div>
+  <h2>Session Overview</h2>
+  <table>
+    <thead><tr><th>Code</th><th>Role</th><th>Seniority</th><th>Date</th><th>Events</th><th>Zones visited</th><th>Observed</th><th>Env. flags</th></tr></thead>
+    <tbody>${sessionTable}</tbody>
+  </table>
+</div>
+
+<div class="page">
+  <h2>Movement Paths</h2>
+  <svg viewBox="${svgVb}" xmlns="http://www.w3.org/2000/svg" style="max-height:480px;">
+    ${zonesPolygons}
+    ${paths}
+  </svg>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;">
+    ${legendItems}
+  </div>
+</div>
+
+<div class="page">
+  <div class="two-col">
+    <div>
+      <h2>Zone Dwell Time</h2>
+      <div class="card">${dwellBars || '<div style="color:#CBD5E1;font-size:11px;">No completed events.</div>'}</div>
+    </div>
+    <div>
+      <h2>Activity Distribution</h2>
+      <div class="card">${actBars || '<div style="color:#CBD5E1;font-size:11px;">No activities logged.</div>'}</div>
+    </div>
+  </div>
+</div>
+
+<div class="page">
+  <h2>Environment Flags</h2>
+  <div class="two-col">
+    <div>
+      <div class="label">By Type</div>
+      <div class="card" style="margin-top:6px;">${envCatBars || '<div style="color:#CBD5E1;font-size:11px;">No flags.</div>'}</div>
+    </div>
+    <div>
+      <div class="label">By Zone</div>
+      <div class="card" style="margin-top:6px;">${envZoneBars || '<div style="color:#CBD5E1;font-size:11px;">No flags.</div>'}</div>
+    </div>
+  </div>
+</div>
+
+</body></html>`;
+}
+
 // ─── Review Tab ────────────────────────────────────────────────────────────────
 
 function ReviewTab({ session, zones, events, markers, archivedSessions, onClearFieldDay }) {
@@ -1686,6 +2116,7 @@ export default function HospitalShadowingApp() {
     { id:"setup", label:"Setup & Zones" },
     { id:"live", label:"Live" },
     { id:"review", label:"Review & Export" },
+    { id:"analyse", label:"Analyse" },
   ];
 
   const totalParticipants = archivedSessions.length + (events.length > 0 || markers.length > 0 ? 1 : 0);
@@ -1727,10 +2158,11 @@ export default function HospitalShadowingApp() {
         </div>
       </div>
 
-      {(tab==="setup" || tab==="review") && (
+      {(tab==="setup" || tab==="review" || tab==="analyse") && (
         <div style={{ height:"calc(100dvh - var(--nav-h, 52px))", overflowY:"auto", padding:"16px 32px" }}>
           {tab==="setup" && <SetupTab session={session} setSession={setSession} study={study} updateStudy={updateStudy} zones={zones} setZones={setZones} floorplanUrl={floorplanUrl} setFloorplanUrl={setFloorplanUrl} />}
           {tab==="review" && <ReviewTab session={session} zones={zones} events={events} markers={markers} archivedSessions={archivedSessions} onClearFieldDay={clearFieldDay} />}
+          {tab==="analyse" && <AnalyseTab zones={zones} allSessions={[...archivedSessions, ...(events.length > 0 || markers.length > 0 ? [{ session, events, markers }] : [])]} />}
         </div>
       )}
       {tab==="live" && (
