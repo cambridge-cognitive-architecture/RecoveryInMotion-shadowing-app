@@ -319,28 +319,23 @@ function FloorplanCanvas({ imageUrl, zones, drawingMode=false, draftPoints=[], h
     const el = wrapRef.current;
     if (!el) return { x: 0, y: 0, scale: 1 };
     const rect = el.getBoundingClientRect();
-    // object-fit:contain inside fixed-height container
     const containerRatio = rect.width / rect.height;
     const imageRatio = dims.w / dims.h;
     let renderedW, renderedH, offsetX, offsetY;
     if (imageRatio > containerRatio) {
-      // image is wider — letterbox top/bottom
-      renderedW = rect.width;
-      renderedH = rect.width / imageRatio;
-      offsetX = 0;
-      offsetY = (rect.height - renderedH) / 2;
+      renderedW = rect.width; renderedH = rect.width / imageRatio;
+      offsetX = 0; offsetY = (rect.height - renderedH) / 2;
     } else {
-      // image is taller — letterbox left/right
-      renderedH = rect.height;
-      renderedW = rect.height * imageRatio;
-      offsetX = (rect.width - renderedW) / 2;
-      offsetY = 0;
+      renderedH = rect.height; renderedW = rect.height * imageRatio;
+      offsetX = (rect.width - renderedW) / 2; offsetY = 0;
     }
     const sx = dims.w / renderedW;
-    const sy = dims.h / renderedH;
+    const x = Math.round((e.clientX - rect.left - offsetX) * sx);
+    const y = Math.round((e.clientY - rect.top - offsetY) * (dims.h / renderedH));
+    // Clamp to image bounds
     return {
-      x: Math.round((e.clientX - rect.left - offsetX) * sx),
-      y: Math.round((e.clientY - rect.top - offsetY) * sy),
+      x: Math.max(0, Math.min(dims.w, x)),
+      y: Math.max(0, Math.min(dims.h, y)),
       scale: sx,
     };
   }
@@ -932,6 +927,13 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
   const wrapRef = useRef(null);
   const [dims, setDims] = useState({ w: 1000, h: 600 });
 
+  // Zoom / pan state
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const lastTouchDist = useRef(null);
+  const lastPanTouch = useRef(null);
+  const isPinching = useRef(false);
+
   useEffect(() => {
     if (!imageUrl) { setDims({ w: 1000, h: 600 }); return; }
     const img = new Image();
@@ -940,32 +942,118 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
     img.src = imageUrl;
   }, [imageUrl]);
 
-  function getPos(e) {
+  // Convert a screen tap → image coordinate space, accounting for zoom + pan + objectFit:contain
+  function getPos(clientX, clientY) {
     const el = wrapRef.current;
     if (!el) return { x: 0, y: 0 };
     const rect = el.getBoundingClientRect();
+    const containerRatio = rect.width / rect.height;
+    const imageRatio = dims.w / dims.h;
+    let renderedW, renderedH, imgOffsetX, imgOffsetY;
+    if (imageRatio > containerRatio) {
+      renderedW = rect.width; renderedH = rect.width / imageRatio;
+      imgOffsetX = 0; imgOffsetY = (rect.height - renderedH) / 2;
+    } else {
+      renderedH = rect.height; renderedW = rect.height * imageRatio;
+      imgOffsetX = (rect.width - renderedW) / 2; imgOffsetY = 0;
+    }
+    // Account for zoom and pan
+    const zoomedW = renderedW * zoom;
+    const zoomedH = renderedH * zoom;
+    const zoomOffsetX = imgOffsetX + pan.x + (renderedW - zoomedW) / 2;
+    const zoomOffsetY = imgOffsetY + pan.y + (renderedH - zoomedH) / 2;
+    const sx = dims.w / zoomedW;
+    const sy = dims.h / zoomedH;
     return {
-      x: Math.round((e.clientX - rect.left) * (dims.w / rect.width)),
-      y: Math.round((e.clientY - rect.top) * (dims.h / rect.height)),
+      x: Math.round((clientX - rect.left - zoomOffsetX) * sx),
+      y: Math.round((clientY - rect.top - zoomOffsetY) * sy),
     };
   }
 
+  // Touch handlers for pinch-zoom and pan
+  function handleTouchStart(e) {
+    if (e.touches.length === 2) {
+      isPinching.current = true;
+      lastTouchDist.current = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+    } else if (e.touches.length === 1 && zoom > 1) {
+      lastPanTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+  }
+
+  function handleTouchMove(e) {
+    if (e.touches.length === 2 && lastTouchDist.current !== null) {
+      e.preventDefault();
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const delta = dist / lastTouchDist.current;
+      setZoom(z => Math.min(5, Math.max(1, z * delta)));
+      lastTouchDist.current = dist;
+    } else if (e.touches.length === 1 && zoom > 1 && lastPanTouch.current) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - lastPanTouch.current.x;
+      const dy = e.touches[0].clientY - lastPanTouch.current.y;
+      setPan(p => ({ x: p.x + dx, y: p.y + dy }));
+      lastPanTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+  }
+
+  function handleTouchEnd(e) {
+    if (e.touches.length < 2) {
+      lastTouchDist.current = null;
+      isPinching.current = false;
+    }
+    if (e.touches.length === 0) lastPanTouch.current = null;
+  }
+
+  function handleClick(e) {
+    if (isPinching.current || !onCanvasClick) return;
+    const pos = getPos(e.clientX, e.clientY);
+    if (pos.x >= 0 && pos.y >= 0 && pos.x <= dims.w && pos.y <= dims.h) {
+      onCanvasClick(pos);
+    }
+  }
+
+  // Reset zoom
+  function resetZoom() { setZoom(1); setPan({ x: 0, y: 0 }); }
+
   const scale = dims.w / 1000;
+
+  // Image transform for zoom/pan
+  const imgStyle = {
+    width: "100%", height: "100%", objectFit: "contain", display: "block",
+    transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+    transformOrigin: "center center",
+    transition: isPinching.current ? "none" : "transform 0.1s ease-out",
+  };
 
   return (
     <div ref={wrapRef}
-      style={{ position: "relative", width: "100%", height: "100%", cursor: "crosshair", background: "#F1F5F9", overflow: "hidden" }}
-      onClick={onCanvasClick ? e => onCanvasClick(getPos(e)) : undefined}
+      style={{ position: "relative", width: "100%", height: "100%", cursor: zoom > 1 ? "grab" : "crosshair", background: "#F1F5F9", overflow: "hidden", touchAction: "none" }}
+      onClick={handleClick}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
       {imageUrl
-        ? <img src={imageUrl} alt="Floorplan" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+        ? <img src={imageUrl} alt="Floorplan" style={imgStyle} draggable={false} />
         : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span style={{ fontSize: 13, color: "#CBD5E1", fontFamily: "'DM Mono',monospace" }}>Upload a floorplan in Setup</span>
           </div>
       }
+
+      {/* SVG overlay — matches image transform exactly */}
       <svg viewBox={`0 0 ${dims.w} ${dims.h}`}
         preserveAspectRatio="xMidYMid meet"
-        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none" }}
+        style={{
+          position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none",
+          transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+          transformOrigin: "center center",
+        }}
         xmlns="http://www.w3.org/2000/svg"
       >
         {/* Zones */}
@@ -980,29 +1068,51 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
           );
         })}
 
-        {/* Path between waypoints */}
+        {/* Path between waypoints — full faint line */}
         {waypoints.length >= 2 && (() => {
           const pathD = "M " + waypoints.map(w => `${w.x},${w.y}`).join(" L ");
           return (
-            <g>
-              <path d={pathD} fill="none" stroke="rgba(0,0,0,0.12)" strokeWidth={6 * scale} strokeLinecap="round" strokeLinejoin="round" />
-              <path d={pathD} fill="none" stroke="#2563EB" strokeWidth={3 * scale} strokeLinecap="round" strokeLinejoin="round" />
-            </g>
+            <path d={pathD} fill="none" stroke="#2563EB" strokeWidth={2 * scale}
+              strokeLinecap="round" strokeLinejoin="round" opacity={0.2} />
           );
         })()}
 
-        {/* Waypoint dots */}
+        {/* Waypoints — older ones faded, last 2 prominent */}
         {waypoints.map((w, i) => {
-          const isFirst = i === 0, isLast = i === waypoints.length - 1;
-          const color = isFirst ? "#059669" : isLast ? "#DC2626" : getEventColor((w.eventTypes||[])[0] || w.eventType || "");
-          const r = (isFirst || isLast ? 8 : 6) * scale;
+          const isLast = i === waypoints.length - 1;
+          const isSecondLast = i === waypoints.length - 2;
+          const isFaded = !isLast && !isSecondLast;
+          const color = isLast ? "#DC2626" : isSecondLast ? "#2563EB" : "#94A3B8";
+          const r = isLast ? 9 * scale : isSecondLast ? 7 * scale : 4 * scale;
+          const opacity = isFaded ? 0.25 : 1;
           return (
-            <g key={w.id || i}>
+            <g key={w.id || i} opacity={opacity}>
               <circle cx={w.x} cy={w.y} r={r} fill={color} stroke="white" strokeWidth={2 * scale} />
-              <text x={w.x} y={w.y + 4 * scale} textAnchor="middle" fontSize={Math.max(8, (isFirst || isLast ? 10 : 9) * scale)} fontWeight="bold" fontFamily="DM Mono,monospace" fill="white">{i + 1}</text>
+              {(isLast || isSecondLast) && (
+                <text x={w.x} y={w.y + 4 * scale} textAnchor="middle"
+                  fontSize={8 * scale} fontWeight="bold" fontFamily="DM Mono,monospace" fill="white">
+                  {i + 1}
+                </text>
+              )}
             </g>
           );
         })}
+
+        {/* Direction arrow between last two points */}
+        {waypoints.length >= 2 && (() => {
+          const prev = waypoints[waypoints.length - 2];
+          const curr = waypoints[waypoints.length - 1];
+          const angle = Math.atan2(curr.y - prev.y, curr.x - prev.x);
+          const mx = (prev.x + curr.x) / 2;
+          const my = (prev.y + curr.y) / 2;
+          const s = 8 * scale;
+          return (
+            <g transform={`translate(${mx},${my}) rotate(${angle * 180 / Math.PI})`}>
+              <polygon points={`${s},0 ${-s * 0.6},${-s * 0.5} ${-s * 0.6},${s * 0.5}`}
+                fill="#2563EB" opacity={0.8} />
+            </g>
+          );
+        })()}
 
         {/* Markers */}
         {markers.map(m => {
@@ -1011,6 +1121,25 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
           return <polygon key={m.id} points={`${m.x},${m.y - s} ${m.x + s * 0.85},${m.y + s * 0.7} ${m.x - s * 0.85},${m.y + s * 0.7}`} fill={color} stroke="white" strokeWidth={1.5 * scale} />;
         })}
       </svg>
+
+      {/* Zoom controls */}
+      {zoom > 1 && (
+        <button onClick={e => { e.stopPropagation(); resetZoom(); }}
+          style={{ position: "absolute", top: 10, right: 10, zIndex: 10,
+            background: "rgba(255,255,255,0.95)", border: "1.5px solid #E2E8F0",
+            borderRadius: 6, padding: "4px 10px", fontSize: 10, fontWeight: 700,
+            fontFamily: "'DM Mono',monospace", color: "#475569", cursor: "pointer" }}>
+          ↺ Reset zoom {Math.round(zoom * 100)}%
+        </button>
+      )}
+      {zoom === 1 && imageUrl && (
+        <div style={{ position: "absolute", bottom: 44, right: 10, zIndex: 10,
+          background: "rgba(255,255,255,0.8)", border: "1px solid #E2E8F0",
+          borderRadius: 5, padding: "3px 8px", fontSize: 9,
+          fontFamily: "'DM Mono',monospace", color: "#94A3B8" }}>
+          Pinch to zoom
+        </div>
+      )}
     </div>
   );
 }
