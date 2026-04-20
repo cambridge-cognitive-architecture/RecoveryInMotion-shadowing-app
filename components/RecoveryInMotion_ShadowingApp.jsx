@@ -1083,8 +1083,9 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
       <div style={innerStyle}>
         {imageUrl
           ? <img src={imageUrl} alt="Floorplan" style={{ width:"100%", height:"100%", objectFit:"contain", display:"block", pointerEvents:"none" }} draggable={false} />
-          : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center" }}>
-              <span style={{ fontSize:13, color:"#CBD5E1", fontFamily:"'DM Mono',monospace" }}>Upload a floorplan in Setup</span>
+          : <div style={{ width:"100%", height:"100%", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:10 }}>
+              <span style={{ fontSize:13, color:"#CBD5E1", fontFamily:"'DM Mono',monospace" }}>No floorplan loaded</span>
+              <span style={{ fontSize:11, color:"#94A3B8", fontFamily:"'DM Sans',sans-serif" }}>Load Zone Config in Setup & Zones to show the map</span>
             </div>
         }
         <svg viewBox={`0 0 ${dims.w} ${dims.h}`}
