@@ -1383,7 +1383,7 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
 
       {/* ── LEFT: map column ── */}
       <div style={{ display: "flex", flexDirection: "column", borderRight: "1.5px solid #E2E8F0", height: "100%", overflow: "hidden" }}>
-        <div style={{ position: "relative", flexShrink: 1, minHeight: 0, overflow: "hidden" }}>
+        <div style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden" }}>
 
           {/* hint overlay */}
           {events.length === 0 && (
@@ -1415,8 +1415,6 @@ function ShadowingLiveTab({ session, zones, events, setEvents, markers, setMarke
 
           <EventLog events={events} setEvents={setEvents} activeEventId={activeEventId} setActiveEventId={setActiveEventId} />
         </div>
-
-        <div style={{ flex: 1 }} />
 
         {/* ── BOTTOM BAR ── */}
         <div style={{ flexShrink: 0, borderTop: "1.5px solid #F1F5F9", background: "white" }}>
