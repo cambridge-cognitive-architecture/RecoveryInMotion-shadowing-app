@@ -446,6 +446,35 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
 
   function handleImageFile(file) {
     if (!file) return;
+    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+      // Render first page of PDF to canvas using pdf.js CDN
+      const fileUrl = URL.createObjectURL(file);
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      script.onload = async () => {
+        try {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+          const pdf = await window.pdfjsLib.getDocument(fileUrl).promise;
+          const page = await pdf.getPage(1);
+          const scale = 2; // 2x for decent resolution
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement("canvas");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext("2d");
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          setFloorplanUrl(canvas.toDataURL("image/png"));
+          URL.revokeObjectURL(fileUrl);
+        } catch(err) {
+          alert("Could not render PDF — try exporting as PNG first.");
+          URL.revokeObjectURL(fileUrl);
+        }
+      };
+      script.onerror = () => alert("Could not load PDF renderer. Check your internet connection.");
+      document.head.appendChild(script);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = e => setFloorplanUrl(e.target.result);
     reader.readAsDataURL(file);
@@ -519,7 +548,7 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
       {/* Hidden file input — kept at top level so ref is always mounted */}
-      <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => handleImageFile(e.target.files[0])} />
+      <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display:"none" }} onChange={e => handleImageFile(e.target.files[0])} />
       <input ref={zoneFileRef} type="file" accept=".json" style={{ display:"none" }} onChange={e => handleZoneImport(e.target.files[0])} />
 
       {/* ── TOP STRIP: session details horizontally ── */}
@@ -570,10 +599,11 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
           <div style={{ display:"flex", gap:8, marginBottom:10, alignItems:"center", flexWrap:"wrap" }}>
             <Btn onClick={() => fileRef.current.click()} variant="outline">⬆ Upload Floorplan</Btn>
             {floorplanUrl && <Btn onClick={() => setFloorplanUrl(null)} variant="ghost" small>Remove</Btn>}
-            <span style={{ fontSize:10, color:"#94A3B8", fontFamily:"'DM Mono',monospace" }}>PNG · JPG · GIF</span>
+            <span style={{ fontSize:10, color:"#94A3B8", fontFamily:"'DM Mono',monospace" }}>PNG · JPG · PDF</span>
             <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
               <Btn onClick={() => zoneFileRef.current.click()} variant="ghost" small>⬆ Load Zone Config</Btn>
-              {(zones.length > 0 || floorplanUrl) && (
+              {zones.length > 0 && <Btn onClick={() => { if(window.confirm("Clear all zones?")) setZones([]); }} variant="ghost" small>✕ Clear Zones</Btn>}
+              {(zones.length > 0 && floorplanUrl) && (
                 <Btn onClick={exportZoneConfig} variant="ghost" small>⬇ Save Zone Config</Btn>
               )}
             </div>
@@ -595,6 +625,9 @@ function SetupTab({ session, setSession, study, updateStudy, zones, setZones, fl
             )}
             {zones.length > 0 && !drawingZone && !awaitingName && (
               <span style={{ fontSize:11, color:"#059669", fontFamily:"'DM Mono',monospace" }}>✓ {zones.length} zone{zones.length>1?"s":""} defined</span>
+            )}
+            {zones.length > 0 && !floorplanUrl && (
+              <span style={{ fontSize:10, color:"#94A3B8", fontFamily:"'DM Mono',monospace" }}>Zones restored from last session — upload floorplan or load zone config</span>
             )}
           </div>
 
@@ -923,7 +956,18 @@ function ZoneLiveTab({ session, zones, events, setEvents, markers, setMarkers, f
 
 function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick }) {
   const wrapRef = useRef(null);
-  const [dims, setDims] = useState({ w: 1000, h: 600 });
+
+  // Initialise viewBox from zone coordinate bounds immediately — prevents blank render
+  // before image onload fires. Image load will refine these dims.
+  const initDims = () => {
+    if (zones && zones.length) {
+      const xs = zones.flatMap(z => (z.points||[]).map(p => p.x));
+      const ys = zones.flatMap(z => (z.points||[]).map(p => p.y));
+      if (xs.length) return { w: Math.max(...xs) + 50, h: Math.max(...ys) + 50 };
+    }
+    return { w: 1000, h: 600 };
+  };
+  const [dims, setDims] = useState(initDims);
 
   // Zoom / pan state
   const [zoom, setZoom] = useState(1);
@@ -935,11 +979,14 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
   const didPinch = useRef(false);
 
   useEffect(() => {
-    if (!imageUrl) { setDims({ w: 1000, h: 600 }); return; }
+    if (!imageUrl) { setDims(initDims()); return; }
     const img = new Image();
     img.onload = () => setDims({ w: img.naturalWidth, h: img.naturalHeight });
     img.onerror = () => console.error("ShadowingCanvas: image failed to load");
     img.src = imageUrl;
+    if (img.complete && img.naturalWidth) {
+      setDims({ w: img.naturalWidth, h: img.naturalHeight });
+    }
   }, [imageUrl]);
 
   // Get the rendered image bounds inside the container (objectFit:contain letterboxing)
