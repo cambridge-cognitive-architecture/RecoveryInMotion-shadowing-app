@@ -929,8 +929,10 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const lastTouchDist = useRef(null);
+  const lastPinchMid = useRef(null);
   const lastPanTouch = useRef(null);
   const isPinching = useRef(false);
+  const didPinch = useRef(false);
 
   useEffect(() => {
     if (!imageUrl) { setDims({ w: 1000, h: 600 }); return; }
@@ -940,57 +942,97 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
     img.src = imageUrl;
   }, [imageUrl]);
 
-  // Convert a screen tap → image coordinate space, accounting for zoom + pan + objectFit:contain
+  // Get the rendered image bounds inside the container (objectFit:contain letterboxing)
+  function getImageBounds() {
+    const el = wrapRef.current;
+    if (!el) return { x:0, y:0, w:0, h:0 };
+    const rect = el.getBoundingClientRect();
+    const containerRatio = rect.width / rect.height;
+    const imageRatio = dims.w / dims.h;
+    let w, h, x, y;
+    if (imageRatio > containerRatio) {
+      w = rect.width; h = rect.width / imageRatio;
+      x = 0; y = (rect.height - h) / 2;
+    } else {
+      h = rect.height; w = rect.height * imageRatio;
+      x = (rect.width - w) / 2; y = 0;
+    }
+    return { x, y, w, h };
+  }
+
+  // Convert screen tap → image coordinate space
   function getPos(clientX, clientY) {
     const el = wrapRef.current;
     if (!el) return { x: 0, y: 0 };
     const rect = el.getBoundingClientRect();
-    const containerRatio = rect.width / rect.height;
-    const imageRatio = dims.w / dims.h;
-    let renderedW, renderedH, imgOffsetX, imgOffsetY;
-    if (imageRatio > containerRatio) {
-      renderedW = rect.width; renderedH = rect.width / imageRatio;
-      imgOffsetX = 0; imgOffsetY = (rect.height - renderedH) / 2;
-    } else {
-      renderedH = rect.height; renderedW = rect.height * imageRatio;
-      imgOffsetX = (rect.width - renderedW) / 2; imgOffsetY = 0;
-    }
-    // Account for zoom and pan
-    const zoomedW = renderedW * zoom;
-    const zoomedH = renderedH * zoom;
-    const zoomOffsetX = imgOffsetX + pan.x + (renderedW - zoomedW) / 2;
-    const zoomOffsetY = imgOffsetY + pan.y + (renderedH - zoomedH) / 2;
-    const sx = dims.w / zoomedW;
-    const sy = dims.h / zoomedH;
+    const { x: ibx, y: iby, w: ibw, h: ibh } = getImageBounds();
+    // The inner div is transformed: translate(pan.x, pan.y) scale(zoom) with origin = pinch origin
+    // We need to invert: screen → container → pre-transform image space
+    // With transform-origin at (0,0) and translate then scale:
+    // screen_pos = pan + zoom * image_pos  =>  image_pos = (screen_pos - pan) / zoom
+    const cx = clientX - rect.left;
+    const cy = clientY - rect.top;
+    const preX = (cx - pan.x) / zoom;
+    const preY = (cy - pan.y) / zoom;
+    // Map from container space to image pixel space
+    const sx = dims.w / ibw;
+    const sy = dims.h / ibh;
     return {
-      x: Math.round((clientX - rect.left - zoomOffsetX) * sx),
-      y: Math.round((clientY - rect.top - zoomOffsetY) * sy),
+      x: Math.round((preX - ibx) * sx),
+      y: Math.round((preY - iby) * sy),
     };
   }
 
-  // Touch handlers for pinch-zoom and pan
   function handleTouchStart(e) {
     if (e.touches.length === 2) {
       isPinching.current = true;
+      didPinch.current = true;
+      const mid = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+      };
       lastTouchDist.current = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-    } else if (e.touches.length === 1 && zoom > 1) {
+      lastPinchMid.current = mid;
+    } else if (e.touches.length === 1) {
       lastPanTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      didPinch.current = false;
     }
   }
 
   function handleTouchMove(e) {
     if (e.touches.length === 2 && lastTouchDist.current !== null) {
       e.preventDefault();
-      const dist = Math.hypot(
+      const el = wrapRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const newDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      const delta = dist / lastTouchDist.current;
-      setZoom(z => Math.min(5, Math.max(1, z * delta)));
-      lastTouchDist.current = dist;
+      const newMid = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+      };
+      const scaleDelta = newDist / lastTouchDist.current;
+      // Pinch midpoint in container coords
+      const originX = newMid.x - rect.left;
+      const originY = newMid.y - rect.top;
+      // Adjust pan so zoom happens toward pinch midpoint:
+      // new_pan = origin - scaleDelta * (origin - old_pan)
+      setPan(p => {
+        const newZoom = Math.min(5, Math.max(1, zoom * scaleDelta));
+        const actualDelta = newZoom / zoom; // use clamped zoom
+        return {
+          x: originX - actualDelta * (originX - p.x),
+          y: originY - actualDelta * (originY - p.y),
+        };
+      });
+      setZoom(z => Math.min(5, Math.max(1, z * scaleDelta)));
+      lastTouchDist.current = newDist;
+      lastPinchMid.current = newMid;
     } else if (e.touches.length === 1 && zoom > 1 && lastPanTouch.current) {
       e.preventDefault();
       const dx = e.touches[0].clientX - lastPanTouch.current.x;
@@ -1004,29 +1046,29 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
     if (e.touches.length < 2) {
       lastTouchDist.current = null;
       isPinching.current = false;
+      lastPinchMid.current = null;
     }
     if (e.touches.length === 0) lastPanTouch.current = null;
   }
 
   function handleClick(e) {
-    if (isPinching.current || !onCanvasClick) return;
+    if (didPinch.current || !onCanvasClick) return;
     const pos = getPos(e.clientX, e.clientY);
     if (pos.x >= 0 && pos.y >= 0 && pos.x <= dims.w && pos.y <= dims.h) {
       onCanvasClick(pos);
     }
   }
 
-  // Reset zoom
   function resetZoom() { setZoom(1); setPan({ x: 0, y: 0 }); }
 
   const scale = dims.w / 1000;
 
-  // Image transform for zoom/pan
-  const imgStyle = {
-    width: "100%", height: "100%", objectFit: "contain", display: "block",
-    transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
-    transformOrigin: "center center",
-    transition: isPinching.current ? "none" : "transform 0.1s ease-out",
+  // Single transform on the inner wrapper — image and SVG move together, zero lag
+  const innerStyle = {
+    position: "absolute", top: 0, left: 0, width: "100%", height: "100%",
+    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+    transformOrigin: "0 0",
+    willChange: "transform",
   };
 
   return (
@@ -1037,23 +1079,19 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      {imageUrl
-        ? <img src={imageUrl} alt="Floorplan" style={imgStyle} draggable={false} />
-        : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ fontSize: 13, color: "#CBD5E1", fontFamily: "'DM Mono',monospace" }}>Upload a floorplan in Setup</span>
-          </div>
-      }
-
-      {/* SVG overlay — matches image transform exactly */}
-      <svg viewBox={`0 0 ${dims.w} ${dims.h}`}
-        preserveAspectRatio="xMidYMid meet"
-        style={{
-          position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none",
-          transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
-          transformOrigin: "center center",
-        }}
-        xmlns="http://www.w3.org/2000/svg"
-      >
+      {/* Single inner div — both image and SVG transform together, no lag */}
+      <div style={innerStyle}>
+        {imageUrl
+          ? <img src={imageUrl} alt="Floorplan" style={{ width:"100%", height:"100%", objectFit:"contain", display:"block", pointerEvents:"none" }} draggable={false} />
+          : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <span style={{ fontSize:13, color:"#CBD5E1", fontFamily:"'DM Mono',monospace" }}>Upload a floorplan in Setup</span>
+            </div>
+        }
+        <svg viewBox={`0 0 ${dims.w} ${dims.h}`}
+          preserveAspectRatio="xMidYMid meet"
+          style={{ position:"absolute", top:0, left:0, width:"100%", height:"100%", pointerEvents:"none" }}
+          xmlns="http://www.w3.org/2000/svg"
+        >
         {/* Zones */}
         {zones.map((zone, idx) => {
           if (!zone.points || zone.points.length < 2) return null;
@@ -1119,15 +1157,16 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
           return <polygon key={m.id} points={`${m.x},${m.y - s} ${m.x + s * 0.85},${m.y + s * 0.7} ${m.x - s * 0.85},${m.y + s * 0.7}`} fill={color} stroke="white" strokeWidth={1.5 * scale} />;
         })}
       </svg>
+      </div>{/* end inner transform wrapper */}
 
-      {/* Zoom controls */}
+      {/* Zoom controls — outside transform wrapper so they stay fixed in corner */}
       {zoom > 1 && (
         <button onClick={e => { e.stopPropagation(); resetZoom(); }}
           style={{ position: "absolute", top: 10, right: 10, zIndex: 10,
             background: "rgba(255,255,255,0.95)", border: "1.5px solid #E2E8F0",
             borderRadius: 6, padding: "4px 10px", fontSize: 10, fontWeight: 700,
             fontFamily: "'DM Mono',monospace", color: "#475569", cursor: "pointer" }}>
-          ↺ Reset zoom {Math.round(zoom * 100)}%
+          ↺ Reset {Math.round(zoom * 100)}%
         </button>
       )}
       {zoom === 1 && imageUrl && (
