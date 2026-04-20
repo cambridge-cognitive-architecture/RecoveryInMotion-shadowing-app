@@ -1063,21 +1063,26 @@ function ShadowingCanvas({ imageUrl, zones, waypoints, markers, onCanvasClick })
         x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
         y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
       };
+      const prevMid = lastPinchMid.current || newMid;
       const scaleDelta = newDist / lastTouchDist.current;
-      // Pinch midpoint in container coords
       const originX = newMid.x - rect.left;
       const originY = newMid.y - rect.top;
-      // Adjust pan so zoom happens toward pinch midpoint:
-      // new_pan = origin - scaleDelta * (origin - old_pan)
+
+      setZoom(z => Math.min(5, Math.max(1, z * scaleDelta)));
       setPan(p => {
         const newZoom = Math.min(5, Math.max(1, zoom * scaleDelta));
-        const actualDelta = newZoom / zoom; // use clamped zoom
-        return {
+        const actualDelta = newZoom / zoom;
+        // Zoom toward pinch midpoint + translate by midpoint movement simultaneously
+        const panAfterZoom = {
           x: originX - actualDelta * (originX - p.x),
           y: originY - actualDelta * (originY - p.y),
         };
+        return {
+          x: panAfterZoom.x + (newMid.x - prevMid.x),
+          y: panAfterZoom.y + (newMid.y - prevMid.y),
+        };
       });
-      setZoom(z => Math.min(5, Math.max(1, z * scaleDelta)));
+
       lastTouchDist.current = newDist;
       lastPinchMid.current = newMid;
     } else if (e.touches.length === 1 && zoom > 1 && lastPanTouch.current) {
